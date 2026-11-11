@@ -1,0 +1,26 @@
+# LUMENZA — Nginx en modo HTTP (sin TLS). Sirve el frontend y reenvía /api al contenedor `api`.
+# Uso: pruebas iniciales o detrás de un balanceador que termina TLS. Para HTTPS real use TLS_MODE=on (https.conf.template).
+# Variables sustituidas por envsubst: ${SERVER_NAME}
+
+limit_req_zone $binary_remote_addr zone=auth_zone:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=api_zone:10m rate=20r/s;
+
+upstream lumenza_api {
+    server api:4000;
+    keepalive 16;
+}
+
+server {
+    listen 80 default_server;
+    server_name ${SERVER_NAME};
+
+    include /etc/nginx/lumenza/common.inc;
+
+    # Desafío ACME (Let's Encrypt) — necesario para emitir el certificado antes de activar TLS_MODE=on
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+
+    include /etc/nginx/lumenza/locations.inc;
+}

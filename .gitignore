@@ -1,0 +1,38 @@
+node_modules
+dist
+.env
+*.log
+.DS_Store
+test-results
+playwright-report
+
+# Despliegue AWS: entornos locales de prueba y respaldos (nunca al repositorio)
+.env.localtest
+deploy/aws/backups/
+deploy/aws/.env
+*.dump
+lumenza-deploy.tar.gz
+lumenza-deploy.sha256
+
+# Secretos y credenciales (defensa adicional; solo se publican los *.example)
+.env.*
+!.env.example
+!.env.aws.example
+deploy/aws/.env.*
+!deploy/aws/.env.aws.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+.aws/
+credentials
+# Temporales y respaldos locales
+*.tar.gz
+*.sha256
+backups/
+.claude/
+.vscode/
+apps/api/preview-out/
+*.tmp

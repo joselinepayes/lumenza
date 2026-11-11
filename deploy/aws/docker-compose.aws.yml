@@ -1,0 +1,178 @@
+# LUMENZA — Docker Compose para producción en una sola instancia AWS EC2 (t3.small, 2 GiB).
+# NO sustituye al docker-compose.yml de la raíz (desarrollo local con RustFS/Mailpit): son independientes.
+# Uso: ver deploy/aws/lumenza.sh y docs/DESPLIEGUE_AWS_EC2.md. Contexto de construcción: raíz del repositorio.
+#
+# Diseño de seguridad
+#  - Solo Nginx publica puertos (80/443). PostgreSQL y la API NO tienen puertos en el host.
+#  - PostgreSQL vive en una red `data` interna (sin salida a Internet) y solo la ven api/worker/migrate.
+#  - Sin Redis: la cola de trabajos usa PostgreSQL (pg-boss), así que no hay otro servicio de datos que exponer.
+#  - Amazon S3 mediante el ROL IAM de la instancia (credenciales temporales por IMDSv2): no hay claves AWS en el .env.
+name: lumenza-aws   # distinto del proyecto de desarrollo (lumenza) para no compartir volúmenes ni redes
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }   # acota el uso de disco de los logs
+
+x-hardening: &hardening
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  init: true
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+  WEB_ORIGIN: ${PUBLIC_URL}
+  SESSION_SECRET: ${SESSION_SECRET}
+  MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  ALLOW_MISSING_INTEGRATIONS: ${ALLOW_MISSING_INTEGRATIONS:-false}
+  # Almacenamiento: Amazon S3 con el rol de la instancia. S3_ENDPOINT/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY NO se definen.
+  S3_BUCKET: ${S3_BUCKET}
+  S3_REGION: ${S3_REGION:-us-east-2}
+  AWS_REGION: ${S3_REGION:-us-east-2}
+  S3_FORCE_PATH_STYLE: "false"
+  # Integraciones externas (pendientes de credenciales reales; vacías = inactivas)
+  RECAPTCHA_SITE_KEY: ${RECAPTCHA_SITE_KEY:-}
+  RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+  SMTP_URL: ${SMTP_URL:-}
+  MAIL_FROM: ${MAIL_FROM:-LUMENZA <no-reply@lumenza.local>}
+
+services:
+  # ---------------------------------------------------------------- Base de datos
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Ajustado a ~384 MiB: pocas conexiones (api ≤10, worker ≤4, pg-boss ≤8) y memoria compartida moderada
+    command: ["postgres", "-c", "shared_buffers=96MB", "-c", "effective_cache_size=256MB", "-c", "max_connections=40",
+              "-c", "work_mem=4MB", "-c", "maintenance_work_mem=32MB", "-c", "wal_compression=on",
+              "-c", "log_min_duration_statement=1000", "-c", "log_checkpoints=on"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    shm_size: 128mb
+    mem_limit: 384m
+    networks: [data]            # sin puertos publicados y sin red hacia Internet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------- Migraciones (una vez por arranque; idempotentes)
+  migrate:
+    image: lumenza-api:${LUMENZA_VERSION:-local}
+    build: { context: ../.., dockerfile: apps/api/Dockerfile }
+    <<: *hardening
+    logging: *logging
+    command: ["node", "dist/db/migrate.js"]
+    environment: *app-env
+    depends_on: { db: { condition: service_healthy } }
+    restart: "no"
+    read_only: true
+    mem_limit: 192m
+    networks: [data]
+
+  # ---------------------------------------------------------------- API Express
+  api:
+    image: lumenza-api:${LUMENZA_VERSION:-local}
+    build: { context: ../.., dockerfile: apps/api/Dockerfile }
+    <<: *hardening
+    restart: unless-stopped
+    logging: *logging
+    command: ["node", "dist/server.js"]
+    environment:
+      <<: *app-env
+      API_PORT: "4000"
+      NODE_OPTIONS: --max-old-space-size=192
+    expose: ["4000"]            # solo accesible desde la red interna de Compose
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    mem_limit: 320m
+    networks: [data, edge]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ---------------------------------------------------------------- Worker (Sharp + detección de rostros)
+  worker:
+    image: lumenza-api:${LUMENZA_VERSION:-local}
+    build: { context: ../.., dockerfile: apps/api/Dockerfile }
+    <<: *hardening
+    restart: unless-stopped
+    logging: *logging
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *app-env
+      WORKER_CONCURRENCY: "1"           # una foto a la vez: limita el pico de memoria (Sharp + TensorFlow WASM)
+      NODE_OPTIONS: --max-old-space-size=384
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    read_only: true
+    tmpfs: ["/tmp:size=64m"]
+    mem_limit: 768m
+    memswap_limit: 1g                   # con swap del host, un pico no mata el contenedor
+    networks: [data, edge]
+    healthcheck:                        # el worker escribe un latido cada 15 s solo si PostgreSQL responde
+      test: ["CMD", "node", "-e", "process.exit(Date.now()-require('fs').statSync('/tmp/worker-heartbeat').mtimeMs<60000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # ---------------------------------------------------------------- Nginx: frontend + proxy hacia la API (+ HTTPS)
+  web:
+    image: lumenza-web:${LUMENZA_VERSION:-local}
+    build: { context: ../.., dockerfile: apps/web/Dockerfile }
+    restart: unless-stopped
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    environment:
+      TLS_MODE: ${TLS_MODE:-off}
+      SERVER_NAME: ${SERVER_NAME:-_}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot
+    depends_on:
+      api: { condition: service_healthy }
+    mem_limit: 64m
+    networks: [edge]
+
+  # ---------------------------------------------------------------- Certbot (solo con --profile tls; emisión/renovación manual)
+  certbot:
+    profiles: ["tls"]
+    image: certbot/certbot:v3.0.1
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: ["certbot"]
+    mem_limit: 128m
+    networks: [edge]
+
+networks:
+  data:
+    internal: true              # PostgreSQL no tiene salida a Internet…
+  edge: {}
+# …pero api/worker necesitan salir a S3/SMTP/Google, así que además están en `edge`. PostgreSQL SOLO está en `data`.
+
+volumes:
+  pgdata:
+  letsencrypt:
+  certbot_www:

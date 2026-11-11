@@ -1,0 +1,38 @@
+# SOLO PRUEBAS LOCALES del stack de producción (no se usa en AWS). Sustituye Amazon S3 por RustFS y publica Nginx en 8081
+# para poder verificar la construcción, el arranque, las migraciones, los respaldos y la memoria SIN tocar AWS ni el entorno de desarrollo.
+# Uso: docker compose -p lumenzaaws -f docker-compose.aws.yml -f docker-compose.localtest.yml --env-file .env.localtest up -d
+x-s3-local: &s3-local
+  S3_ENDPOINT: http://rustfs:9000
+  S3_ACCESS_KEY_ID: ${LOCALTEST_S3_KEY}
+  S3_SECRET_ACCESS_KEY: ${LOCALTEST_S3_SECRET}
+  S3_FORCE_PATH_STYLE: "true"
+
+services:
+  rustfs:
+    image: rustfs/rustfs:1.0.5@sha256:b81d16a90ee25bd9511280127ca1471788c6e874cf0f0da759645f46b2dc1d74
+    environment:
+      RUSTFS_ACCESS_KEY: ${LOCALTEST_S3_KEY}
+      RUSTFS_SECRET_KEY: ${LOCALTEST_S3_SECRET}
+    volumes: [rustfsdata:/data]
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+  api:
+    environment: *s3-local
+    depends_on:
+      rustfs: { condition: service_healthy }
+  worker:
+    environment: *s3-local
+    depends_on:
+      rustfs: { condition: service_healthy }
+  web:
+    ports: !override
+      - "127.0.0.1:8081:80"
+      - "127.0.0.1:8443:443"
+
+volumes:
+  rustfsdata:

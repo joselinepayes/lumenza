@@ -1,0 +1,6 @@
+# Finales de línea LF en todo el repositorio (los scripts y Dockerfiles fallan en Linux con CRLF)
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary

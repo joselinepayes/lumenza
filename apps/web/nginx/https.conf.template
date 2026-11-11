@@ -1,0 +1,40 @@
+# LUMENZA — Nginx en modo HTTPS (TLS_MODE=on). Requiere un certificado emitido para ${SERVER_NAME}
+# (ver docs/DESPLIEGUE_AWS_EC2.md, sección HTTPS). Redirige HTTP→HTTPS y añade HSTS.
+# Variables sustituidas por envsubst: ${SERVER_NAME}
+
+limit_req_zone $binary_remote_addr zone=auth_zone:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=api_zone:10m rate=20r/s;
+
+upstream lumenza_api {
+    server api:4000;
+    keepalive 16;
+}
+
+server {
+    listen 80 default_server;
+    server_name ${SERVER_NAME};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+    location = /healthz { access_log off; default_type text/plain; return 200 "ok\n"; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate     /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    include /etc/nginx/lumenza/common.inc;
+    include /etc/nginx/lumenza/locations.inc;
+}

@@ -1,0 +1,17 @@
+{
+  "name": "lumenza",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev:api": "npm run dev -w @lumenza/api",
+    "dev:web": "npm run dev -w @lumenza/web",
+    "build": "npm run build -w @lumenza/api && npm run build -w @lumenza/web",
+    "typecheck": "npm run typecheck -w @lumenza/api && npm run typecheck -w @lumenza/web",
+    "test": "npm run test -w @lumenza/api",
+    "migrate": "npm run migrate -w @lumenza/api",
+    "db:up": "docker compose up -d db minio"
+  },
+  "devDependencies": { "npm-run-all2": "^8.0.4" }
+}

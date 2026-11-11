@@ -1,0 +1,42 @@
+/* Tokens de diseño LUMENZA — fuente única de color, radios, movimiento */
+:root,
+:root[data-theme='dark'] {
+  --bg: #0b0b10;
+  --surface: #15151d;
+  --surface-2: #1d1d29;
+  --text: #f8f8fc;
+  --text-2: #a3a3b5;
+  --accent: #9673f7;
+  --accent-soft: #c4b5fd;
+  --on-accent: #0b0b10;
+  --border: #292936;
+  --danger: #ff7a8a;
+  --success: #6ee7a8;
+  --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 0 24px color-mix(in srgb, var(--accent) 18%, transparent);
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  --bg: #fafafd;
+  --surface: #ffffff;
+  --surface-2: #f1f1f7;
+  --text: #181821;
+  --text-2: #5f5f73;
+  --accent: #7654d7;
+  --accent-soft: #5b3fb8;
+  --on-accent: #ffffff;
+  --border: #e8e8f0;
+  --danger: #c4213a;
+  --success: #12794a;
+  --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 20px color-mix(in srgb, var(--accent) 14%, transparent);
+  color-scheme: light;
+}
+:root {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur: 200ms;
+  --dur-slow: 300ms;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.18);
+}
