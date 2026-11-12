@@ -107,6 +107,13 @@ describe.skipIf(!run)('SSE: eventos en tiempo real, privacidad y estabilidad', a
     while (hub.connectedCount() !== last) { last = hub.connectedCount(); await sleep(300); }
   };
 
+  /** Espera hasta que se cumpla una condición (sondeo corto con límite); devuelve si se cumplió. Sin pausas fijas. */
+  const until = async (cond: () => boolean, ms = 3000) => {
+    const end = Date.now() + ms;
+    while (!cond() && Date.now() < end) await sleep(20);
+    return cond();
+  };
+
   /** Publicación «completa» en una sola transacción (variantes y rostros resueltos) para que ningún reconciliador la reprocese. */
   async function mkPost(author: U, visibility: 'public' | 'followers' | 'private' = 'public'): Promise<string> {
     const id = randomUUID();
@@ -188,39 +195,35 @@ describe.skipIf(!run)('SSE: eventos en tiempo real, privacidad y estabilidad', a
       s.close();
     }, 40_000);
 
-    it('S05 desconexión inesperada libera la conexión y el temporizador', async () => {
-      (await connect(E)).close(); // ciclo de calentamiento: los temporizadores de fondo de Node/Express se crean con la primera petición
+    // Los recursos se comprueban en el propio hub (conexiones registradas y temporizador de latido), no contando los
+    // temporizadores globales de Node: éstos incluyen los de inactividad del pool de pg (uno por conexión de BD liberada),
+    // que aparecen y desaparecen con la carga y daban falsos positivos intermitentes.
+    it('S05 desconexión inesperada libera la conexión y el temporizador del hub', async () => {
+      (await connect(E)).close();
       await quiet();
-      await sleep(300);
       const base = hub.connectedCount();
-      const timers = () => process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length;
-      const t0 = timers();
       const s = await connect(E);
       expect(hub.connectedCount()).toBe(base + 1);
+      expect(hub.tickerActive()).toBe(true); // hay conexiones: el temporizador de latido existe
       s.close(); // corte brusco del socket
-      for (let i = 0; i < 50 && hub.connectedCount() !== base; i++) await sleep(50);
+      expect(await until(() => hub.connectedCount() === base), 'la conexión cortada sigue registrada en el hub').toBe(true);
       expect(hub.connectedCount()).toBe(base);
-      await sleep(100);
-      expect(timers()).toBeLessThanOrEqual(t0); // el setInterval del latido se limpió
+      expect(hub.tickerActive()).toBe(base > 0); // sin conexiones, el temporizador se detuvo
     });
 
     it('S06 límite de 5 conexiones por usuario: la más antigua se cierra y no quedan temporizadores huérfanos', async () => {
       await quiet();
       const base = hub.connectedCount();
-      const timers = () => process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length;
-      const t0 = timers();
       const list: Sse[] = [];
       for (let i = 0; i < 6; i++) list.push(await connect(E));
-      await sleep(300);
-      expect(list[0]!.ended).toBe(true); // expulsada
-      expect(list.slice(1).every((s) => !s.ended)).toBe(true);
-      expect(hub.connectedCount()).toBe(base + 5);
-      expect(timers()).toBeLessThanOrEqual(t0 + 5); // la expulsada no deja su latido vivo
+      expect(await until(() => list[0]!.ended), 'la conexión más antigua no fue cerrada por el servidor').toBe(true); // expulsada
+      expect(list.slice(1).every((s) => !s.ended)).toBe(true); // las cinco restantes siguen abiertas
+      expect(hub.connectedCount()).toBe(base + 5); // la expulsada ya no está registrada
+      expect(hub.tickerActive()).toBe(true); // un único temporizador compartido mientras haya conexiones
       list.forEach((s) => s.close());
-      for (let i = 0; i < 50 && hub.connectedCount() !== base; i++) await sleep(50);
+      expect(await until(() => hub.connectedCount() === base), 'quedan conexiones registradas tras cerrarlas').toBe(true);
       expect(hub.connectedCount()).toBe(base);
-      await sleep(100);
-      expect(timers()).toBeLessThanOrEqual(t0);
+      expect(hub.tickerActive()).toBe(base > 0); // sin conexiones, el temporizador del hub se libera
     });
 
     it('S07 dos pestañas del mismo usuario: cada una recibe UN solo ejemplar (sin duplicados)', async () => {
