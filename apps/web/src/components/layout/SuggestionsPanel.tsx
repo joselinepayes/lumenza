@@ -9,9 +9,13 @@ import { Skeleton } from '../ui/Feedback';
 
 export function FollowButton({ username, following, requested = false, isPrivate = false, size = 'sm' }: { username: string; following: boolean; requested?: boolean; isPrivate?: boolean; size?: 'sm' | 'md' }) {
   const m = useFollow(username);
+  // El nombre accesible empieza por el texto visible (WCAG 2.5.3) y dice qué hará el botón; el estado va en el propio nombre,
+  // por eso no se usa aria-pressed (evita anunciar el estado dos veces). Pulsar «Solicitado» cancela la solicitud (DELETE follow).
+  const text = following ? 'Siguiendo' : requested ? 'Solicitado' : isPrivate ? 'Solicitar' : 'Seguir';
+  const label = following ? `Siguiendo: dejar de seguir a ${username}` : requested ? `Solicitado: cancelar la solicitud para seguir a ${username}` : isPrivate ? `Solicitar seguir a ${username}` : `Seguir a ${username}`;
   return (
-    <Button size={size} variant={following || requested ? 'secondary' : 'primary'} loading={m.isPending} onClick={() => m.mutate(!(following || requested))} aria-pressed={following || requested} aria-label={`${following ? 'Dejar de seguir a' : 'Seguir a'} ${username}`}>
-      {following ? 'Siguiendo' : requested ? 'Solicitado' : isPrivate ? 'Solicitar' : 'Seguir'}
+    <Button size={size} variant={following || requested ? 'secondary' : 'primary'} loading={m.isPending} onClick={() => m.mutate(!(following || requested))} aria-label={label}>
+      {text}
     </Button>
   );
 }

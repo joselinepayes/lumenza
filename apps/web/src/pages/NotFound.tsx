@@ -1,6 +1,8 @@
 import { ButtonLink } from '../components/ui/Button';
+import { usePageTitle } from '../lib/title';
 
 export default function NotFound({ inline = false }: { inline?: boolean }) {
+  usePageTitle(inline ? null : 'Página no encontrada');
   return (
     <main className={`grid place-items-center px-6 text-center ${inline ? 'py-24' : 'min-h-dvh'}`}>
       <div>

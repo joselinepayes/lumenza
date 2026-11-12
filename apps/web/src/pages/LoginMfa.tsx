@@ -10,11 +10,13 @@ import { Field } from '../components/ui/Field';
 import { useToast } from '../components/ui/Feedback';
 import { ApiError, api } from '../lib/api';
 import type { User } from '../lib/auth';
+import { usePageTitle } from '../lib/title';
 
 interface Challenge { valid: boolean; source: 'password' | 'google'; attemptsLeft: number }
 
 /** Segundo paso del inicio de sesión: aún NO hay sesión; solo existe un desafío de un solo uso (cookie HttpOnly). */
 export default function LoginMfa() {
+  usePageTitle('Verificación en dos pasos');
   const nav = useNavigate();
   const loc = useLocation();
   const qc = useQueryClient();

@@ -178,7 +178,7 @@ Runbook paso a paso: `docs/DESPLIEGUE_AWS_EC2.md`. Archivos: `deploy/aws/{docker
 
 ## Estado de LUMENZA 2.0 (actualizado 2026-11-12) — implementada y probada en local · NO desplegada
 
-> Convención de este apartado: **Implementado** = existe en el código local · **Probado** = hay una ejecución automatizada real que lo respalda (cifras abajo) · **Desplegado** = corre en AWS · **Pendiente de pruebas** / **Pendiente de implementación** = aún no. **Nada de la 2.0 está desplegado ni commiteado.**
+> Convención de este apartado: **Implementado** = existe en el código local · **Probado** = hay una ejecución automatizada real que lo respalda (cifras abajo) · **Desplegado** = corre en AWS · **Pendiente de pruebas** / **Pendiente de implementación** = aún no. **Nada de la 2.0 está desplegado.** Commits locales (sin push): `4e9e714` (checkpoint 2.0: privacidad, notificaciones y SSE) y el commit de las correcciones E1–E3 (Paso 10A, ver abajo).
 > La nota «NO desplegado» de la sección *Preparación del despliegue en AWS EC2* es histórica (2026-11-10/11). Según el equipo, la versión anterior (sin Fase 6, migraciones 001–006) ya corre en una EC2 (`lumenza.duckdns.org`); eso **no se ha verificado en esta sesión** y no se ha tocado AWS.
 
 ### Qué hay en cada entorno
@@ -203,12 +203,15 @@ Runbook paso a paso: `docs/DESPLIEGUE_AWS_EC2.md`. Archivos: `deploy/aws/{docker
 | Typecheck API y web | 0 errores | `tsc` del web **no** incluye `apps/web/e2e` (Playwright las transpila sin comprobar tipos) |
 | Build | correcto | aviso de chunks > 500 kB (ya conocido) |
 | Unitarias | 15/15 | |
-| Integración | **125/125** (10 archivos) | incluye `privacy.integration.test.ts` (5) y `events.integration.test.ts` (36); una corrida anterior tuvo 5 timeouts de worker/S3 por carga de la máquina |
+| Integración | **126/126** (10 archivos; 125 hasta el Paso 9, +1 en el Paso 10A) | incluye `privacy.integration.test.ts` (6) y `events.integration.test.ts` (36); una corrida anterior tuvo 5 timeouts de worker/S3 por carga de la máquina |
 | SSE (`events.integration.test.ts`) | **36/36**, 3 corridas seguidas | tres usuarios; audiencias, notificaciones, edición/borrado, reconexión, límites, latidos, caída del oyente LISTEN, revocación de sesiones |
 | MFA E2E (`mfa.spec.ts`) | 11/11 ×3 | el test `:66` pasó 24/24 repeticiones tras corregirlo |
 | Social E2E (`social.spec.ts`) | 3/3 ×3; el flujo `:11` pasó 10/10 | |
 | Regresión E2E auth+social+MFA | **19/19 en dos corridas** (Paso 6) | |
-| E2E completo de 6 archivos (37) | última ejecución completa en el Paso 2: 35 pasaron y 2 dieron timeout; repetidos pasaron 10/10 | **`faces.spec.ts` y `studio.spec.ts` no se han vuelto a ejecutar tras los cambios de sesión/SSE** |
+| E2E completo de 6 archivos (37) | última ejecución completa en el Paso 2: 35 pasaron y 2 dieron timeout; repetidos pasaron 10/10 | superado en el Paso 10A: `studio.spec.ts` + `faces.spec.ts` **18/18** tras los cambios de sesión/SSE |
+| Accesibilidad E1/E2/E3 (`accesibilidad.spec.ts`) | **4/4 en 3 corridas** (66, 65 y 66 s) | listas restringidas, nombre accesible del botón de seguir, títulos por ruta, 375 y 1366 px |
+| Regresión E2E auth+social+MFA+accesibilidad | **23/23 en dos corridas** (162 y 168 s) | Paso 10A |
+| Unitarias (Paso 10A) | 15/15 | |
 
 ### Correcciones realizadas durante esta ronda
 1. `PATCH /posts/:id` devolvía 500 por un SQL con el marcador `$n` mal formado (lo detectó la prueba de integración).
@@ -217,6 +220,24 @@ Runbook paso a paso: `docs/DESPLIEGUE_AWS_EC2.md`. Archivos: `deploy/aws/{docker
 4. Frontend: al cerrar sesión se eliminan las consultas en caché del usuario anterior (se conserva `me`; un primer intento con `queryClient.clear()` rompió el logout y lo detectó el E2E) y `EventSource` se reabre tras 5 s solo si la sesión sigue siendo válida.
 5. Test MFA `:66`: dependía del reloj (cruce de la ventana TOTP de 30 s). Ahora usa el paso realmente gastado leído de la BD y verifica reutilizado vs caducado en `audit_log`. **No se modificó la seguridad TOTP.**
 6. Test social `:11`: timeout propio de 120 s (medido: 53–105 s con la máquina cargada) y límite de 60 s para el procesamiento con mensaje que indica la etapa del worker. No se tocó el pipeline.
+
+### Paso 10A — correcciones de accesibilidad y funcionalidad E1, E2, E3 (2026-11-12; solo frontend y pruebas, sin cambios de backend)
+Hallazgos de la auditoría del frontend (Paso 9). Sin rediseño: colores, tipografía, estructura y espaciados intactos.
+
+| Hallazgo | Antes | Después | Causa |
+|---|---|---|---|
+| **E1** Listas de seguidores/siguiendo de un perfil privado | A un visitante sin acceso: «Aún no tiene seguidores» mientras el contador decía 1 | «La lista de seguidores no está disponible porque este perfil es privado.» (y el equivalente para «sigue»). Sin identidades; el contador se conserva; dueña y seguidores aceptados ven la lista; una lista pública realmente vacía conserva «Aún no tiene seguidores» | El API ya devolvía `{items: [], locked: true}`; el frontend ignoraba `locked` |
+| **E2** Nombre accesible del botón de seguir | «Solicitado» tenía nombre «Seguir a X» (no contenía el texto visible, WCAG 2.5.3) | Seguir: «Seguir a X» · Solicitar: «Solicitar seguir a X» · Solicitado: «Solicitado: cancelar la solicitud para seguir a X» · Siguiendo: «Siguiendo: dejar de seguir a X». Se quitó `aria-pressed` (el estado va en el nombre) | `aria-label` fijo sin variante para «Solicitado». Cancelar la solicitud **ya existía** (DELETE follow); no se añadió funcionalidad |
+| **E3** Título de pestaña | Idéntico en todas las pantallas | Por ruta («Inicio \| LUMENZA», «Explorar», «Notificaciones», «Iniciar sesión», …); el contador de avisos se antepone («(1) Inicio \| LUMENZA»); perfil privado inaccesible → «Perfil privado»; publicación → «Fotografía de {nombre}» (nunca el texto); 404 → «Página no encontrada» / «Perfil no encontrado» / «Publicación no disponible»; estados de carga genéricos | Nada fijaba `document.title` por ruta |
+
+Archivos: `apps/web/src/lib/title.ts` (nuevo, hook `usePageTitle`, sin dependencias), `SuggestionsPanel.tsx`, `Profile.tsx`, `PostPage.tsx`, `Live.tsx`, `lib/social.ts`, `index.html`, títulos estáticos en 14 páginas. Pruebas: `apps/web/e2e/accesibilidad.spec.ts` (nuevo), `social.spec.ts` (nombre accesible exacto), `privacy.integration.test.ts` (+1: lista restringida sin identidades, dueña/seguidor aceptado, contador, volver a público).
+
+Verificación (reales, local): typecheck y build correctos · integración **126/126** · unitarias **15/15** · accesibilidad 4/4 ×3 · regresión auth+social+MFA+accesibilidad **23/23 ×2** · Studio+rostros **18/18**. Capturas a 375 y 1366 px fuera del repositorio (carpeta temporal de la sesión; hay que regenerarlas para el informe).
+
+Riesgos de este paso: quien solicita no se entera de un rechazo (por diseño) y ve «Solicitado» hasta recargar · los contadores de un perfil privado siguen visibles · los títulos de perfiles/publicaciones accesibles incluyen el nombre visible (queda en el historial del navegador) · nombres accesibles comprobados con el cálculo de Playwright, **no con un lector de pantalla real** · hallazgos E4–E7 de la auditoría sin atender (`/design` público sin `<main>`, PostPage sin `<h1>`, manejo global de 401, foco en el primer error del registro).
+
+### Preparación del despliegue de la 2.0 a AWS (análisis del 2026-11-12; nada ejecutado en AWS)
+Entre la versión 1 (`5a0e84c`) y la 2.0 solo cambian la migración 007 (aditiva) y `pack-for-ec2.sh`: sin variables de entorno, dependencias, Compose, Dockerfile ni Nginx nuevos. Estado: **NO LISTO**. Falta, en local: ensayo de actualización con una base de datos v1 (001–006 → 007), prueba de SSE a través del Nginx del contenedor `web` y `location = /api/events` propio (`proxy_buffering off`, lectura larga; pendiente de autorizar), ejecutar de verdad el empaquetado y construir las imágenes x86_64. Y, en la EC2: reconocimiento de solo lectura (confirmar que coincide con el runbook), respaldo con `./lumenza.sh backup` verificado en un PostgreSQL desechable, etiquetar las imágenes actuales como `v1-prev` (reversión de código con `LUMENZA_VERSION`; no se revierte 007), `load`, `up`, `health` y las pruebas desde `lumenza.duckdns.org`.
 
 ### Seguridad SSE y cierre de sesiones (resumen técnico)
 - Autenticación por cookie de sesión; sin sesión 401. Eventos con **solo identificadores** (sin texto de publicaciones ni comentarios).
@@ -235,7 +256,7 @@ React 19 + Vite + Tailwind 4 (TanStack Query, `EventSource`, Web Audio) → Ngin
 ### Riesgos abiertos y siguientes fases
 **Riesgos abiertos (todos pendientes)**
 1. **Trabajo histórico del worker de 70,9 s**: sin investigar. Superaría el límite de 60 s del test; la causa probable es la carga de la máquina (el proyecto está dentro de OneDrive), sin confirmar.
-2. `faces.spec.ts` y `studio.spec.ts`: dieron timeouts en el Paso 2 y no se han vuelto a revisar; el timeout global de 45 s probablemente les afecta.
+2. ~~`faces.spec.ts` y `studio.spec.ts`~~ **Resuelto en el Paso 10A**: 18/18 tras los cambios de sesión/SSE.
 3. Política **fail-closed con margen** para SSE (cerrar todas las conexiones tras ~3 revalidaciones fallidas seguidas) y guardia contra pasadas solapadas.
 4. **Bucle de reconexión con más de 5 pestañas**: la expulsada reconecta a los 4 s y expulsa a otra; cada `ready` recarga feed y avisos. Posible solución: responder 204 a la conexión sobrante.
 5. **Limpieza de caché tras un 401** sin pasar por logout (la caché del usuario anterior sigue hasta que se refresque).
@@ -248,7 +269,7 @@ React 19 + Vite + Tailwind 4 (TanStack Query, `EventSource`, Web Audio) → Ngin
 12. Exposición oral y participación del grupo: pendientes de verificar.
 13. Pendientes previos sin cambios: Google OAuth, reCAPTCHA y SMTP reales; Passkeys (opcional); cuenta del evaluador; optimización del bundle; decidir sobre `PROMPT_MAESTRO.md` (aparece borrado en el árbol de trabajo, sin tocar).
 
-**Siguientes fases propuestas (cada una con pruebas y cierre en este archivo)**: commit local → revisión visual/responsive → atender riesgos 1–6 → Nginx/`location` de SSE y prueba en navegador → SES → despliegue con respaldo y reversión → exposición.
+**Siguientes fases propuestas (cada una con pruebas y cierre en este archivo)**: ~~commit local~~ (hecho: `4e9e714` y el de E1–E3) → revisión visual/responsive → atender riesgos 1–6 → Nginx/`location` de SSE y prueba en navegador → SES → despliegue con respaldo y reversión → exposición.
 
 ### Matriz de seguimiento de la rúbrica (5 criterios × 20 puntos)
 > El texto oficial de la rúbrica **no está en el repositorio**. La columna «Requisitos» resume lo que el equipo declaró para cada criterio y debe contrastarse con el documento oficial. **No se asignan puntajes**: ninguna cifra de esta tabla es una calificación obtenida.

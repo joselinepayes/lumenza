@@ -11,6 +11,7 @@ import { Button } from '../components/ui/Button';
 import { Field } from '../components/ui/Field';
 import { ApiError, api } from '../lib/api';
 import { useAuthConfig, type User } from '../lib/auth';
+import { usePageTitle } from '../lib/title';
 
 const schema = z
   .object({
@@ -33,6 +34,7 @@ function useDebounced<T>(v: T, ms = 400) {
 }
 
 export default function Register() {
+  usePageTitle('Registro');
   const nav = useNavigate();
   const qc = useQueryClient();
   const { data: config } = useAuthConfig();

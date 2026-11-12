@@ -9,6 +9,7 @@ import { Button, ButtonLink } from '../components/ui/Button';
 import { Field } from '../components/ui/Field';
 import { ApiError, api } from '../lib/api';
 import { useUrlToken } from '../lib/useUrlToken';
+import { usePageTitle } from '../lib/title';
 
 const schema = z
   .object({
@@ -25,6 +26,7 @@ const hints: Record<string, string> = {
 };
 
 export default function ResetPassword() {
+  usePageTitle('Restablecer contraseña');
   const token = useUrlToken();
   const check = useQuery({
     queryKey: ['reset-token', token],

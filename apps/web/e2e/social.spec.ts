@@ -89,8 +89,9 @@ test('publicar, interactuar, perfil, explorar, seguir y eliminar (flujo social c
   await expect(pb.getByRole('heading', { name: a.name })).toBeVisible();
   await expect(pb.getByRole('button', { name: 'Editar perfil' })).toHaveCount(0); // no puede editar perfiles ajenos
   const main = pb.getByRole('main');
-  await main.getByRole('button', { name: `Seguir a ${a.username}` }).click();
-  await expect(main.getByRole('button', { name: `Dejar de seguir a ${a.username}` })).toBeVisible();
+  await main.getByRole('button', { name: `Seguir a ${a.username}`, exact: true }).click();
+  // El nombre accesible incluye el texto visible («Siguiendo») y la acción que realizará el botón
+  await expect(main.getByRole('button', { name: `Siguiendo: dejar de seguir a ${a.username}`, exact: true })).toBeVisible();
   await expect(main.getByRole('button', { name: /1\s*seguidor/ })).toBeVisible();
   await pb.goto('/inicio');
   await expect(pb.getByText('Primera luz de la mañana')).toBeVisible();

@@ -11,11 +11,13 @@ import { Button, ButtonLink } from '../components/ui/Button';
 import { Field } from '../components/ui/Field';
 import { api } from '../lib/api';
 import { useAuthConfig } from '../lib/auth';
+import { usePageTitle } from '../lib/title';
 
 const schema = z.object({ email: z.string().trim().toLowerCase().email('Ingresa un correo válido') });
 type Form = z.infer<typeof schema>;
 
 export default function ForgotPassword() {
+  usePageTitle('Recuperar contraseña');
   const { data: config } = useAuthConfig();
   const [captcha, setCaptcha] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);

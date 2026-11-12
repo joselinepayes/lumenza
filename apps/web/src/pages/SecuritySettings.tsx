@@ -9,6 +9,7 @@ import { ApiError } from '../lib/api';
 import { SettingsTabs } from './PrivacySettings';
 import { useAuth } from '../lib/auth';
 import { groupSecret, useMfaDisable, useMfaEnable, useMfaRegenerate, useMfaSetup, useMfaStatus, type MfaSetup, type MfaStatus } from '../lib/mfa';
+import { usePageTitle } from '../lib/title';
 
 const dateFmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 
@@ -152,6 +153,7 @@ function Row({ icon, title, children, action }: { icon: ReactNode; title: string
 }
 
 export default function SecuritySettings() {
+  usePageTitle('Seguridad');
   const { user } = useAuth();
   const q = useMfaStatus();
   const [modal, setModal] = useState<null | 'enable' | 'disable' | 'regenerate'>(null);

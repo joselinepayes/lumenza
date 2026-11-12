@@ -2,6 +2,7 @@ import { Aperture, ScanFace, SwatchBook } from 'lucide-react';
 import { ButtonLink } from '../components/ui/Button';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { usePageTitle } from '../lib/title';
 
 /* Composición visual de marca (gradientes abstractos). No son fotos de usuarios. */
 const frames = [
@@ -17,6 +18,7 @@ const features = [
 ];
 
 export default function Landing() {
+  usePageTitle();
   return (
     <div className="min-h-dvh">
       <header className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-4 sm:px-8 sm:py-5">

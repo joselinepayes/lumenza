@@ -12,6 +12,7 @@ import { Modal } from '../components/ui/Modal';
 import { ApiError, api } from '../lib/api';
 import { useSettings } from '../lib/notifications';
 import { flat, useProfile, useSaved, useUpdateProfile, useUserList, useUserPosts } from '../lib/social';
+import { usePageTitle } from '../lib/title';
 import { isViewable, type Post, type Profile as ProfileT } from '../lib/types';
 import { ProcessingTile } from '../components/studio/ProcessingPanel';
 import { useQueryClient } from '@tanstack/react-query';
@@ -61,7 +62,7 @@ function UserListModal({ username, kind, onClose }: { username: string; kind: 'f
   return (
     <Modal title={kind === 'followers' ? 'Seguidores' : 'Siguiendo'} onClose={onClose}>
       <div className="px-5 py-3">
-        {q.isPending ? <Skeleton className="h-12" /> : q.isError ? <ErrorState onRetry={() => q.refetch()} /> : q.data.items.length ? <ul>{q.data.items.map((u) => <UserRow key={u.id} u={u} />)}</ul> : <p className="py-8 text-center text-ink-2">{kind === 'followers' ? 'Aún no tiene seguidores.' : 'Aún no sigue a nadie.'}</p>}
+        {q.isPending ? <Skeleton className="h-12" /> : q.isError ? <ErrorState onRetry={() => q.refetch()} /> : q.data.locked ? <p className="py-8 text-center text-ink-2">{kind === 'followers' ? 'La lista de seguidores no está disponible porque este perfil es privado.' : 'La lista de personas que sigue no está disponible porque este perfil es privado.'}</p> : q.data.items.length ? <ul>{q.data.items.map((u) => <UserRow key={u.id} u={u} />)}</ul> : <p className="py-8 text-center text-ink-2">{kind === 'followers' ? 'Aún no tiene seguidores.' : 'Aún no sigue a nadie.'}</p>}
       </div>
     </Modal>
   );
@@ -143,6 +144,8 @@ function PendingRequestsLink() {
 export default function ProfilePage() {
   const { username = '' } = useParams();
   const q = useProfile(username.toLowerCase());
+  // Perfil privado al que no se tiene acceso: título genérico (no se anuncia ni el nombre en la pestaña ni en el historial)
+  usePageTitle(q.isError ? (q.error instanceof ApiError && q.error.status === 404 ? 'Perfil no encontrado' : 'Perfil') : !q.data ? 'Perfil' : q.data.isPrivate && !q.data.canView ? 'Perfil privado' : `${q.data.displayName} (@${q.data.username})`);
   const [tab, setTab] = useState<'posts' | 'saved'>('posts');
   const [modal, setModal] = useState<null | 'followers' | 'following' | 'edit'>(null);
 

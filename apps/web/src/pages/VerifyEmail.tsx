@@ -6,6 +6,7 @@ import { ButtonLink } from '../components/ui/Button';
 import { ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useUrlToken } from '../lib/useUrlToken';
+import { usePageTitle } from '../lib/title';
 
 const hints: Record<string, string> = {
   token_expired: 'Este enlace venció (dura 24 horas). Inicia sesión y solicita uno nuevo desde tu cuenta.',
@@ -14,6 +15,7 @@ const hints: Record<string, string> = {
 };
 
 export default function VerifyEmail() {
+  usePageTitle('Verificar correo');
   const token = useUrlToken();
   const qc = useQueryClient();
   const { user } = useAuth();

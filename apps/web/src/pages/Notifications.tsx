@@ -9,6 +9,7 @@ import { notifText, useMarkRead, useNotifications, useResolveRequest } from '../
 import { flat, relativeTime } from '../lib/social';
 import { playSound, setSoundEnabled, soundEnabled } from '../lib/sound';
 import type { Notif } from '../lib/types';
+import { usePageTitle } from '../lib/title';
 
 function Item({ n, fresh }: { n: Notif; fresh: boolean }) {
   const resolve = useResolveRequest();
@@ -37,6 +38,7 @@ function Item({ n, fresh }: { n: Notif; fresh: boolean }) {
 }
 
 export default function Notifications() {
+  usePageTitle('Notificaciones');
   const q = useNotifications();
   const mark = useMarkRead();
   const [sound, setSound] = useState(soundEnabled());

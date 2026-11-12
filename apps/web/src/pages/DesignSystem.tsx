@@ -3,10 +3,12 @@ import { Button, ButtonLink } from '../components/ui/Button';
 import { Field } from '../components/ui/Field';
 import { Logo } from '../components/ui/Logo';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { usePageTitle } from '../lib/title';
 
 const tokens = ['bg', 'surface', 'surface-2', 'text', 'text-2', 'accent', 'accent-soft', 'border', 'danger', 'success'];
 
 export default function DesignSystem() {
+  usePageTitle('Sistema de diseño');
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
       <header className="mb-10 flex items-center justify-between">

@@ -42,7 +42,7 @@ export const usePost = (id: string) =>
 export const useProfile = (username: string) => useQuery({ queryKey: ['profile', username], queryFn: async () => (await api<{ profile: Profile }>(`/users/${username}`)).profile, retry: false });
 export const useSuggestions = () => useQuery({ queryKey: ['suggestions'], queryFn: () => api<{ items: UserListItem[] }>('/suggestions'), staleTime: 60_000 });
 export const useUserList = (username: string, kind: 'followers' | 'following', enabled: boolean) =>
-  useQuery({ queryKey: ['user-list', username, kind], queryFn: () => api<{ items: UserListItem[] }>(`/users/${username}/${kind}`), enabled });
+  useQuery({ queryKey: ['user-list', username, kind], queryFn: () => api<{ items: UserListItem[]; locked?: boolean }>(`/users/${username}/${kind}`), enabled });
 export const useSearchUsers = (q: string) => useQuery({ queryKey: ['search-users', q], queryFn: () => api<{ items: UserListItem[] }>(`/search/users?q=${encodeURIComponent(q)}`), enabled: q.length > 0, staleTime: 30_000 });
 export const useSearchTags = (q: string) => useQuery({ queryKey: ['search-tags', q], queryFn: () => api<{ items: { tag: string; posts: number }[] }>(`/search/hashtags?q=${encodeURIComponent(q)}`), enabled: q.length > 0, staleTime: 30_000 });
 export const useComments = (id: string, enabled = true) => infinite<Comment>(['comments', id], (c) => `/posts/${id}/comments${qs({ cursor: c })}`, enabled);

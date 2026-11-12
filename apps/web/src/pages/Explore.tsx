@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { InfiniteSentinel } from '../components/ui/Infinite';
 import { flat, useExplore, useFeatured, useSearchTags, useSearchUsers } from '../lib/social';
 import { CATEGORIES, type Post } from '../lib/types';
+import { usePageTitle } from '../lib/title';
 
 function useDebounced<T>(v: T, ms = 350) {
   const [d, setD] = useState(v);
@@ -32,6 +33,7 @@ const MasonrySkeleton = () => (
 );
 
 export default function Explore() {
+  usePageTitle('Explorar');
   const [params, setParams] = useSearchParams();
   const cat = params.get('cat') ?? undefined;
   const tag = params.get('tag') ?? undefined;

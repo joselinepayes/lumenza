@@ -111,4 +111,39 @@ describe.skipIf(!run)('Privacidad, avisos y edición', async () => {
     expect(s.status).toBe(200);
     for (const u of s.body.items) expect(typeof u.reason).toBe('string');
   });
+
+  it('listas de seguidores/siguiendo de un perfil privado: restringidas a no autorizados (sin identidades), visibles a dueño y seguidor aceptado; el contador se conserva', async () => {
+    const D = mk('d');
+    const r = await request(app).post('/api/auth/register').set('Origin', ORIGIN).send({ displayName: 'Usuario d', username: D.username, email: D.email, password: pw, confirmPassword: pw });
+    D.cookie = r.headers['set-cookie'] as unknown as string[];
+    D.id = r.body.user.id;
+    // Estado de partida: B y C ya siguen a A (pruebas anteriores). A pasa a privado; D es una persona ajena sin relación.
+    await as(A).patch('/api/me/settings').send({ isPrivate: true });
+    const ownerFollowers = await as(A).get(`/api/users/${A.username}/followers`);
+    expect(ownerFollowers.body.locked).toBeUndefined();
+    const names = ownerFollowers.body.items.map((u: { username: string }) => u.username);
+    expect(names).toEqual(expect.arrayContaining([B.username, C.username]));
+    // Seguidor aceptado: ve la lista completa
+    const approved = await as(B).get(`/api/users/${A.username}/followers`);
+    expect(approved.body.locked).toBeUndefined();
+    expect(approved.body.items.map((u: { username: string }) => u.username)).toEqual(expect.arrayContaining([B.username, C.username]));
+    // Visitante sin autorización: lista vacía MARCADA como restringida y sin ninguna identidad en la respuesta
+    for (const kind of ['followers', 'following']) {
+      const res = await as(D).get(`/api/users/${A.username}/${kind}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ items: [], locked: true });
+      expect(JSON.stringify(res.body)).not.toMatch(new RegExp(`${B.username}|${C.username}|${B.id}|${C.id}`));
+    }
+    // El contador del perfil se conserva (no depende de la lista) y el perfil indica que no se puede ver
+    const prof = (await as(D).get(`/api/users/${A.username}`)).body.profile;
+    const ownerProf = (await as(A).get(`/api/users/${A.username}`)).body.profile;
+    expect(prof).toMatchObject({ isPrivate: true, canView: false });
+    expect(prof.followerCount).toBe(ownerProf.followerCount);
+    expect(prof.followerCount).toBeGreaterThanOrEqual(2);
+    // Volver a público abre las listas
+    await as(A).patch('/api/me/settings').send({ isPrivate: false });
+    const open = await as(D).get(`/api/users/${A.username}/followers`);
+    expect(open.body.locked).toBeUndefined();
+    expect(open.body.items.length).toBeGreaterThanOrEqual(2);
+  });
 });

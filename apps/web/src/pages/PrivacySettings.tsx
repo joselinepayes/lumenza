@@ -9,6 +9,7 @@ import { useFollowRequests, useResolveRequest, useSettings, useUpdateSettings } 
 import { relativeTime } from '../lib/social';
 import { playSound, setSoundEnabled, soundEnabled } from '../lib/sound';
 import type { Settings } from '../lib/types';
+import { usePageTitle } from '../lib/title';
 
 export function SettingsTabs() {
   const tab = ({ isActive }: { isActive: boolean }) => `-mb-px border-b-2 px-4 py-2.5 text-sm transition-colors ${isActive ? 'border-accent text-ink' : 'border-transparent text-ink-2 hover:text-ink'}`;
@@ -52,6 +53,7 @@ function Requests() {
 }
 
 export default function PrivacySettings() {
+  usePageTitle('Privacidad');
   const q = useSettings();
   const upd = useUpdateSettings();
   const toast = useToast();

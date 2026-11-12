@@ -8,6 +8,7 @@ import { ErrorState, Skeleton } from '../components/ui/Feedback';
 import { Button } from '../components/ui/Button';
 import { ApiError } from '../lib/api';
 import { flat, relativeTime, useAddComment, useComments, useDeleteComment, usePost } from '../lib/social';
+import { usePageTitle } from '../lib/title';
 import type { Post } from '../lib/types';
 import NotFound from './NotFound';
 
@@ -63,6 +64,8 @@ export default function PostPage() {
   const { id = '' } = useParams();
   const nav = useNavigate();
   const q = usePost(id);
+  // Título sin texto de la publicación (puede ser de acceso restringido): solo el nombre de quien publica, ya visible en la página
+  usePageTitle(q.isError ? (q.error instanceof ApiError && q.error.status === 404 ? 'Publicación no disponible' : 'Publicación') : q.data ? `Fotografía de ${q.data.author.displayName}` : 'Publicación');
   const loc = useLocation();
   useEffect(() => { if (loc.hash === '#studio' && q.data) document.getElementById('studio')?.scrollIntoView({ block: 'start' }); }, [loc.hash, q.isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
   const focusComment = () => document.getElementById('new-comment')?.focus();

@@ -11,11 +11,13 @@ import { Button } from '../components/ui/Button';
 import { Field } from '../components/ui/Field';
 import { api } from '../lib/api';
 import { useAuthConfig, type User } from '../lib/auth';
+import { usePageTitle } from '../lib/title';
 
 const schema = z.object({ identifier: z.string().trim().min(3, 'Ingresa tu correo o usuario'), password: z.string().min(1, 'Ingresa tu contraseña') });
 type Form = z.infer<typeof schema>;
 
 export default function Login() {
+  usePageTitle('Iniciar sesión');
   const nav = useNavigate();
   const loc = useLocation();
   const qc = useQueryClient();

@@ -8,6 +8,7 @@ import { Button, ButtonLink } from '../components/ui/Button';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { InfiniteSentinel } from '../components/ui/Infinite';
 import { flat, useFeed } from '../lib/social';
+import { usePageTitle } from '../lib/title';
 
 export function PostSkeleton() {
   return (
@@ -20,6 +21,7 @@ export function PostSkeleton() {
 }
 
 export default function Feed() {
+  usePageTitle('Inicio');
   const q = useFeed();
   const publish = usePublish();
   const posts = flat(q.data);

@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '../../lib/auth';
 import { notifText, useUnreadCount } from '../../lib/notifications';
 import { playSound, unlockAudioOnGesture } from '../../lib/sound';
+import { setUnreadInTitle } from '../../lib/title';
 import { useToast } from '../ui/Feedback';
 
 interface LiveState {
@@ -35,11 +36,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { unlockAudioOnGesture(); }, []);
 
-  // El contador de avisos sin leer también aparece en el título de la pestaña
+  // El contador de avisos sin leer también aparece en el título de la pestaña (se combina con el título de cada página)
   const count = unread.data ?? 0;
   useEffect(() => {
-    const base = document.title.replace(/^\(\d+\)\s/, '');
-    document.title = count > 0 ? `(${count > 99 ? '99+' : count}) ${base}` : base;
+    setUnreadInTitle(count);
+    return () => setUnreadInTitle(0);
   }, [count]);
 
   useEffect(() => {
