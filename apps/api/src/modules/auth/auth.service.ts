@@ -1,5 +1,6 @@
 import argon2 from 'argon2';
 import { createHash, randomBytes } from 'node:crypto';
+import { closeSession } from '../../events/hub.js';
 import { HttpError } from '../../middleware/errors.js';
 import { authRepository, type UserRow } from './auth.repository.js';
 import type { LoginInput, RegisterInput } from './auth.schema.js';
@@ -84,7 +85,12 @@ export const authService = {
   },
 
   async logout(token: string | undefined) {
-    if (token) await authRepository.revokeSession(hashToken(token));
+    if (!token) return;
+    const hash = hashToken(token);
+    // Cierre en dos fases: antes de revocar (no se envía nada más a esta sesión) y después (por si una conexión se registró entre medias).
+    closeSession(hash);
+    await authRepository.revokeSession(hash);
+    closeSession(hash);
   },
 
   async userFromToken(token: string | undefined): Promise<UserRow | undefined> {

@@ -12,6 +12,7 @@ import { createMfaRouter } from './modules/mfa/mfa.routes.js';
 import { createAuthRouter, type AuthDeps } from './modules/auth/auth.routes.js';
 import { createSocialRouter } from './modules/social/social.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { createEventsRouter } from './events/events.routes.js';
 
 export function createApp(deps: AuthDeps = {}) {
   const app = express();
@@ -28,6 +29,7 @@ export function createApp(deps: AuthDeps = {}) {
   app.use('/api', loadUser);
   app.use('/api', enforceSessionScope);
   app.use('/api', healthRouter);
+  app.use('/api', createEventsRouter());
   app.use('/api/auth/mfa', createMfaRouter({ strictLimits: deps.strictLimits }));
   app.use('/api/auth', createAuthRouter(deps));
   app.use('/api', createSocialRouter({ strictLimits: deps.strictLimits, queue: deps.queue }));

@@ -104,6 +104,19 @@ export function useFollow(username: string) {
       qc.invalidateQueries({ queryKey: ['suggestions'] });
       qc.invalidateQueries({ queryKey: ['user-list'] });
       qc.invalidateQueries({ queryKey: ['profile'] });
+      qc.invalidateQueries({ queryKey: ['user-posts'] });
+      qc.invalidateQueries({ queryKey: ['search-users'] });
+    },
+  });
+}
+
+export function useUpdatePost(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { caption: string; tags: string; category: string | null; visibility: string; allowDownload: boolean; coverVariant: string | null }) => api<{ post: Post }>(`/posts/${id}`, { method: 'PATCH', body: v }),
+    onSuccess: ({ post }) => {
+      patchPost(qc, id, post);
+      ['explore', 'featured', 'profile'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
   });
 }

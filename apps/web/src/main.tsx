@@ -14,6 +14,8 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import LoginMfa from './pages/LoginMfa';
 import SecuritySettings from './pages/SecuritySettings';
+import PrivacySettings from './pages/PrivacySettings';
+import Notifications from './pages/Notifications';
 import NotFound from './pages/NotFound';
 import PostPage from './pages/PostPage';
 import ProfilePage from './pages/Profile';
@@ -47,6 +49,8 @@ createRoot(document.getElementById('root')!).render(
                 <Route path="/u/:username" element={<ProfilePage />} />
                 <Route path="/ajustes" element={<Navigate to="/ajustes/seguridad" replace />} />
                 <Route path="/ajustes/seguridad" element={<SecuritySettings />} />
+                <Route path="/ajustes/privacidad" element={<PrivacySettings />} />
+                <Route path="/notificaciones" element={<Notifications />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

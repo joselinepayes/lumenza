@@ -2,6 +2,7 @@ import { Compass, ImagePlus } from 'lucide-react';
 import { useCallback } from 'react';
 import { VerifyBanner } from '../components/auth/VerifyBanner';
 import { usePublish } from '../components/layout/AppShell';
+import { NewContentPill } from '../components/layout/Live';
 import { PostCard } from '../components/post/PostCard';
 import { Button, ButtonLink } from '../components/ui/Button';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
@@ -28,6 +29,7 @@ export default function Feed() {
     <div className="px-0">
       <h1 className="sr-only">Inicio</h1>
       <div className="px-4 pt-4 sm:px-0 sm:pt-0"><VerifyBanner /></div>
+      <NewContentPill kind="feed" one="publicación" many="publicaciones" />
       {q.isPending ? (
         <div className="flex flex-col gap-6">{[0, 1].map((i) => <PostSkeleton key={i} />)}</div>
       ) : q.isError ? (

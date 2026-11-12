@@ -67,15 +67,17 @@ function base32Decode(s: string): Buffer {
   }
   return Buffer.from(out);
 }
-/** TOTP RFC 6238 (SHA-1, 6 dígitos, 30 s) calculado de forma independiente del servidor. `step` desplaza ±30 s. */
-export function totpNow(secret: string, step = 0): string {
+/** TOTP RFC 6238 (SHA-1, 6 dígitos, 30 s) del paso ABSOLUTO indicado (contador = floor(epoch / 30)). No depende del reloj. */
+export function totpAtStep(secret: string, counter: number): string {
   const buf = Buffer.alloc(8);
-  buf.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000 / 30) + step));
+  buf.writeBigUInt64BE(BigInt(counter));
   const h = createHmac('sha1', base32Decode(secret)).update(buf).digest();
   const o = h[h.length - 1]! & 0xf;
   const bin = ((h[o]! & 0x7f) << 24) | (h[o + 1]! << 16) | (h[o + 2]! << 8) | h[o + 3]!;
   return String(bin % 1_000_000).padStart(6, '0');
 }
+/** Código del paso actual (+ `step` ventanas de 30 s) según el reloj de este momento. Para pruebas sensibles al reloj usa `totpAtStep`. */
+export const totpNow = (secret: string, step = 0): string => totpAtStep(secret, Math.floor(Date.now() / 1000 / 30) + step);
 
 export async function sql(query: string, params: unknown[] = []) {
   const c = new pg.Client({ connectionString: process.env.DATABASE_URL });
@@ -84,4 +86,13 @@ export async function sql(query: string, params: unknown[] = []) {
 }
 /** Simula el paso de los 30 s: libera el último paso TOTP usado (para poder reutilizar el reloj real en la prueba). */
 export const freeMfaStep = (email: string) => sql('UPDATE user_mfa SET last_used_step = NULL WHERE user_id = (SELECT id FROM users WHERE email = $1)', [email]);
-export const makeAdmin = (email: string) => sql("UPDATE users SET role = 'admin' WHERE email = $1", [email]);
+/** Paso TOTP que el BACKEND registró como último usado (null si ninguno): es el código realmente gastado, sin suponer el reloj. */
+export const lastUsedMfaStep = async (email: string): Promise<number | null> => {
+  const rows = await sql('SELECT last_used_step FROM user_mfa WHERE user_id = (SELECT id FROM users WHERE email = $1)', [email]);
+  const v = rows[0]?.last_used_step as string | number | null | undefined;
+  return v === null || v === undefined ? null : Number(v);
+};
+/** Motivos de los fallos de MFA registrados en la auditoría, en orden (bad_totp = inválido/caducado; totp_replay = reutilizado). */
+export const mfaFailureReasons = async (email: string): Promise<string[]> =>
+  (await sql("SELECT meta->>'reason' AS reason FROM audit_log WHERE action = 'auth.mfa_failed' AND user_id = (SELECT id FROM users WHERE email = $1) ORDER BY id", [email])).map((r) => r.reason as string);
+export const makeAdmin =(email: string) => sql("UPDATE users SET role = 'admin' WHERE email = $1", [email]);

@@ -7,14 +7,16 @@ const PAGE = 12;
 interface Row {
   id: string; caption: string; category: string | null; visibility: PostDTO['visibility']; allow_download: boolean;
   created_at: Date; created_text: string; author_id: string; username: string; display_name: string; avatar_key: string | null;
-  photo_id: string; width: number; height: number; obytes: string; omime: string; pstatus: PostDTO['processing']['status']; progress: number; stage: string | null; last_error: string | null; attempts: number; faces_status: 'pending' | 'done' | 'failed'; faces: { x: number; y: number; w: number; h: number; score: number }[]; variants: { kind: string; width: number; height: number; bytes: string; params: Record<string, unknown> }[]; like_count: number; comment_count: number; liked: boolean; saved: boolean; tags: string[];
+  photo_id: string; width: number; height: number; obytes: string; omime: string; pstatus: PostDTO['processing']['status']; progress: number; stage: string | null; last_error: string | null; attempts: number; faces_status: 'pending' | 'done' | 'failed'; faces: { x: number; y: number; w: number; h: number; score: number }[]; variants: { kind: string; width: number; height: number; bytes: string; params: Record<string, unknown> }[]; like_count: number; comment_count: number; liked: boolean; saved: boolean; tags: string[]; edited_at: Date | null; cover_variant: string | null;
 }
 
 /** Predicado de visibilidad para el espectador ($1). */
-export const VISIBLE = `(p.author_id = $1 OR p.visibility = 'public' OR (p.visibility = 'followers' AND EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = $1 AND f.followee_id = p.author_id)))`;
+export const VISIBLE = `(p.author_id = $1
+  OR (p.visibility = 'public' AND NOT EXISTS (SELECT 1 FROM profiles pv WHERE pv.user_id = p.author_id AND pv.is_private))
+  OR (p.visibility IN ('public','followers') AND EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = $1 AND f.followee_id = p.author_id)))`;
 
 const SELECT = `
-SELECT p.id, p.caption, p.category, p.visibility, p.allow_download, p.created_at, p.created_at::text AS created_text,
+SELECT p.id, p.caption, p.category, p.visibility, p.allow_download, p.edited_at, p.cover_variant, p.created_at, p.created_at::text AS created_text,
   u.id AS author_id, u.username::text AS username, pr.display_name, pr.avatar_key,
   ph.id AS photo_id, ph.width, ph.height, ph.bytes::text AS obytes, ph.mime AS omime, ph.status::text AS pstatus, ph.progress, ph.stage, ph.last_error, ph.attempts, ph.faces_status, ph.faces,
   (SELECT COALESCE(json_agg(json_build_object('kind', v.kind, 'width', v.width, 'height', v.height, 'bytes', v.bytes::text, 'params', v.params) ORDER BY v.created_at), '[]'::json) FROM photo_variants v WHERE v.photo_id = ph.id) AS variants,
@@ -37,11 +39,13 @@ export const toDTO = (r: Row, viewerId: string): PostDTO => ({
   allowDownload: r.allow_download,
   createdAt: r.created_at.toISOString(),
   author: { id: r.author_id, username: r.username, displayName: r.display_name, avatarUrl: avatarUrl(r.author_id, r.avatar_key) },
-  photo: { id: r.photo_id, width: r.width, height: r.height, bytes: Number(r.obytes), mime: r.omime, displayUrl: `/api/media/photo/${r.photo_id}/display`, thumbUrl: `/api/media/photo/${r.photo_id}/thumbnail` },
+  photo: { id: r.photo_id, width: r.width, height: r.height, bytes: Number(r.obytes), mime: r.omime, displayUrl: `/api/media/photo/${r.photo_id}/${r.cover_variant && r.variants.some((v) => v.kind === r.cover_variant) ? r.cover_variant : 'display'}`, thumbUrl: `/api/media/photo/${r.photo_id}/thumbnail` },
   processing: { status: r.pstatus, progress: r.progress, stage: r.stage, error: r.pstatus === 'failed' || r.pstatus === 'partial' ? r.last_error : null, attempts: r.attempts },
   faces: { status: r.faces_status, count: r.faces_status === 'done' ? r.faces.length : 0, boxes: r.faces_status === 'done' ? r.faces : [] },
   variants: r.variants.map((v) => ({ kind: v.kind, url: `/api/media/photo/${r.photo_id}/${v.kind}`, width: v.width, height: v.height, bytes: Number(v.bytes), params: v.params })),
   tags: r.tags,
+  editedAt: r.edited_at ? r.edited_at.toISOString() : null,
+  coverVariant: r.cover_variant,
   likeCount: r.like_count,
   commentCount: r.comment_count,
   liked: r.liked,
@@ -121,6 +125,52 @@ export const postsRepository = {
     } finally {
       c.release();
     }
+  },
+
+  /** Edita una publicación propia. Devuelve false si no existe o no es del autor. */
+  async update(authorId: string, postId: string, patch: { caption?: string; category?: string | null; visibility?: string; allowDownload?: boolean; coverVariant?: string | null; tags?: string[] }): Promise<boolean> {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const sets: string[] = ['edited_at = now()'];
+      const args: unknown[] = [postId, authorId];
+      const add = (col: string, v: unknown, cast = '') => { args.push(v); sets.push(`${col} = $${args.length}${cast}`); };
+      if (patch.caption !== undefined) add('caption', patch.caption);
+      if (patch.category !== undefined) add('category', patch.category, '::post_category');
+      if (patch.visibility !== undefined) add('visibility', patch.visibility, '::post_visibility');
+      if (patch.allowDownload !== undefined) add('allow_download', patch.allowDownload);
+      if (patch.coverVariant !== undefined) add('cover_variant', patch.coverVariant);
+      const r = await c.query(`UPDATE posts SET ${sets.join(', ')} WHERE id = $1 AND author_id = $2`, args);
+      if (!r.rowCount) { await c.query('ROLLBACK'); return false; }
+      if (patch.tags) {
+        await c.query('DELETE FROM post_hashtags WHERE post_id = $1', [postId]);
+        for (const tag of patch.tags) {
+          const h = await c.query<{ id: number }>('INSERT INTO hashtags(tag) VALUES ($1) ON CONFLICT (tag) DO UPDATE SET tag = EXCLUDED.tag RETURNING id', [tag]);
+          await c.query('INSERT INTO post_hashtags(post_id, hashtag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [postId, h.rows[0]!.id]);
+        }
+      }
+      await c.query('COMMIT');
+      return true;
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    } finally {
+      c.release();
+    }
+  },
+
+  /** Etiquetas en tendencia (últimos 14 días, solo publicaciones públicas de perfiles abiertos). */
+  async trendingTags(): Promise<{ tag: string; posts: number }[]> {
+    return (await pool.query(
+      `SELECT h.tag::text AS tag, count(*)::int AS posts FROM post_hashtags x JOIN hashtags h ON h.id = x.hashtag_id JOIN posts p ON p.id = x.post_id
+       JOIN photos ph ON ph.post_id = p.id AND ph.status IN ('ready','partial')
+       WHERE p.visibility = 'public' AND p.created_at > now() - interval '14 days' AND NOT EXISTS (SELECT 1 FROM profiles pv WHERE pv.user_id = p.author_id AND pv.is_private)
+       GROUP BY h.tag ORDER BY posts DESC, h.tag LIMIT 8`)).rows;
+  },
+
+  async authorInfo(postId: string): Promise<{ authorId: string; username: string; visibility: 'public' | 'followers' | 'private' } | undefined> {
+    const r = (await pool.query('SELECT p.author_id, u.username::text AS username, p.visibility::text AS visibility FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = $1', [postId])).rows[0];
+    return r && { authorId: r.author_id, username: r.username, visibility: r.visibility };
   },
 
   async ownedPhoto(authorId: string, postId: string): Promise<{ photoId: string; status: string } | undefined> {

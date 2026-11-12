@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { publish } from '../events/hub.js';
 import type { VariantKind } from '../images/transforms.js';
 
 export interface PhotoJobRow {
@@ -53,6 +54,10 @@ export const photosJobs = {
   async finish(photoId: string, workerId: string) {
     await pool.query(
       `UPDATE photos SET status = 'ready', progress = 100, stage = 'ready', last_error = NULL, processing_finished_at = now(), processed_by = $2, updated_at = now() WHERE id = $1`, [photoId, workerId]);
+    // Tiempo real: la publicación ya es visible para su audiencia (el worker es otro proceso: se avisa por PostgreSQL)
+    const post = (await pool.query<{ id: string; author_id: string; username: string; visibility: 'public' | 'followers' | 'private' }>(
+      `SELECT p.id, p.author_id, u.username::text AS username, p.visibility::text AS visibility FROM photos ph JOIN posts p ON p.id = ph.post_id JOIN users u ON u.id = p.author_id WHERE ph.id = $1`, [photoId])).rows[0];
+    if (post) await publish({ kind: 'post', action: 'created', postId: post.id, authorId: post.author_id, authorUsername: post.username, visibility: post.visibility });
   },
   async recordError(photoId: string, message: string) {
     await pool.query('UPDATE photos SET last_error = $2, updated_at = now() WHERE id = $1', [photoId, message.slice(0, 500)]);

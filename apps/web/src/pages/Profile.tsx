@@ -1,4 +1,4 @@
-import { Bookmark, Camera, Grid3x3, Heart, ImagePlus, MessageCircle } from 'lucide-react';
+import { Bookmark, Camera, Grid3x3, Heart, ImagePlus, Lock, MessageCircle, UserCheck } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { FollowButton, UserRow } from '../components/layout/SuggestionsPanel';
@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, Skeleton, useToast } from '../components/ui/Fee
 import { InfiniteSentinel } from '../components/ui/Infinite';
 import { Modal } from '../components/ui/Modal';
 import { ApiError, api } from '../lib/api';
+import { useSettings } from '../lib/notifications';
 import { flat, useProfile, useSaved, useUpdateProfile, useUserList, useUserPosts } from '../lib/social';
 import { isViewable, type Post, type Profile as ProfileT } from '../lib/types';
 import { ProcessingTile } from '../components/studio/ProcessingPanel';
@@ -127,6 +128,18 @@ function EditProfileModal({ profile, onClose }: { profile: ProfileT; onClose: ()
   );
 }
 
+function PendingRequestsLink() {
+  const s = useSettings();
+  const n = s.data?.pendingRequests ?? 0;
+  if (!s.data?.isPrivate || n === 0) return null;
+  return (
+    <Link to="/ajustes/privacidad" className="mx-4 mb-4 flex items-center gap-3 rounded-lg border border-accent/50 bg-surface-2 px-4 py-3 text-sm transition-colors hover:border-accent sm:mx-0">
+      <UserCheck className="size-5 text-accent" strokeWidth={1.75} aria-hidden />
+      <span><strong className="font-medium">{n === 1 ? '1 solicitud' : `${n} solicitudes`}</strong> para seguirte. Revísalas.</span>
+    </Link>
+  );
+}
+
 export default function ProfilePage() {
   const { username = '' } = useParams();
   const q = useProfile(username.toLowerCase());
@@ -147,20 +160,28 @@ export default function ProfilePage() {
         <div className="flex items-center gap-4 sm:gap-8">
           <Avatar name={p.displayName} src={p.avatarUrl} size="xl" />
           <div className="min-w-0 flex-1">
-            <h1 className="font-display truncate text-3xl font-light tracking-tight sm:text-4xl">{p.displayName}</h1>
+            <h1 className="font-display flex items-center gap-2 text-3xl font-light tracking-tight sm:text-4xl"><span className="truncate">{p.displayName}</span>{p.isPrivate && <Lock className="size-5 shrink-0 text-ink-2" strokeWidth={1.75} aria-label="Perfil privado" />}</h1>
             <p className="truncate text-ink-2">@{p.username}</p>
             <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 sm:gap-x-6">{stat(p.postCount, p.postCount === 1 ? 'publicación' : 'publicaciones')}{stat(p.followerCount, p.followerCount === 1 ? 'seguidor' : 'seguidores', () => setModal('followers'))}{stat(p.followingCount, 'siguiendo', () => setModal('following'))}</div>
           </div>
         </div>
         {p.bio && <p className="mt-5 max-w-prose whitespace-pre-line break-words leading-relaxed">{p.bio}</p>}
-        <div className="mt-5">{p.isMe ? <Button variant="secondary" onClick={() => setModal('edit')}>Editar perfil</Button> : <FollowButton username={p.username} following={p.following} size="md" />}</div>
+        <div className="mt-5">{p.isMe ? <Button variant="secondary" onClick={() => setModal('edit')}>Editar perfil</Button> : <FollowButton username={p.username} following={p.following} requested={p.followRequested} isPrivate={p.isPrivate} size="md" />}</div>
       </header>
 
+      {p.isMe && <PendingRequestsLink />}
+
+      {!p.canView ? (
+        <div className="border-t border-line">
+          <EmptyState icon={Lock} title="Este perfil es privado">{p.followRequested ? 'Tu solicitud está pendiente. Verás sus fotografías cuando la acepte.' : 'Solicita seguir a esta persona para ver sus fotografías.'}</EmptyState>
+        </div>
+      ) : (<>
       <div role="tablist" aria-label="Contenido del perfil" className="flex border-t border-line">
         <button role="tab" aria-selected={tab === 'posts'} onClick={() => setTab('posts')} className={`flex flex-1 items-center justify-center gap-2 border-t-2 py-3 text-xs uppercase tracking-[0.2em] transition-colors sm:flex-none sm:px-6 ${tab === 'posts' ? '-mt-px border-accent text-ink' : 'border-transparent text-ink-2 hover:text-ink'}`}><Grid3x3 className="size-4" /> Publicaciones</button>
         {p.isMe && <button role="tab" aria-selected={tab === 'saved'} onClick={() => setTab('saved')} className={`flex flex-1 items-center justify-center gap-2 border-t-2 py-3 text-xs uppercase tracking-[0.2em] transition-colors sm:flex-none sm:px-6 ${tab === 'saved' ? '-mt-px border-accent text-ink' : 'border-transparent text-ink-2 hover:text-ink'}`}><Bookmark className="size-4" /> Guardados</button>}
       </div>
       <div className="px-0.5 pt-1 sm:px-0 sm:pt-4">{tab === 'saved' && p.isMe ? <SavedTab /> : <PostsTab username={p.username} mine={p.isMe} />}</div>
+      </>)}
 
       {modal === 'edit' && <EditProfileModal profile={p} onClose={() => setModal(null)} />}
       {(modal === 'followers' || modal === 'following') && <UserListModal username={p.username} kind={modal} onClose={() => setModal(null)} />}

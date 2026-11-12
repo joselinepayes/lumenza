@@ -30,6 +30,7 @@ id_rsa*
 credentials
 # Temporales y respaldos locales
 *.tar.gz
+*.tar
 *.sha256
 backups/
 .claude/

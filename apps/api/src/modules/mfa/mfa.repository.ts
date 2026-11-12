@@ -1,4 +1,5 @@
 import { pool } from '../../db/pool.js';
+import { closeSessions } from '../../events/hub.js';
 
 export interface MfaRow {
   user_id: string;
@@ -106,7 +107,8 @@ export const mfaRepository = {
   },
 
   async revokeOtherSessions(userId: string, keepTokenHash: string | null) {
-    await pool.query('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL AND ($2::text IS NULL OR token_hash <> $2)', [userId, keepTokenHash]);
+    const r = await pool.query<{ token_hash: string }>('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL AND ($2::text IS NULL OR token_hash <> $2) RETURNING token_hash', [userId, keepTokenHash]);
+    closeSessions(r.rows.map((x) => x.token_hash)); // las conexiones SSE de las sesiones revocadas se cierran al instante
   },
   async promoteSession(tokenHash: string) {
     await pool.query("UPDATE sessions SET scope = 'full', mfa_verified_at = now() WHERE token_hash = $1", [tokenHash]);

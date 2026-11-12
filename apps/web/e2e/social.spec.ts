@@ -9,6 +9,10 @@ test.afterAll(async () => {
 const reg = (u: ReturnType<typeof uniqueUser>) => ({ displayName: u.name, username: u.username, email: u.email, password: u.password, confirmPassword: u.password });
 
 test('publicar, interactuar, perfil, explorar, seguir y eliminar (flujo social completo)', async ({ page, browser }) => {
+  // Presupuesto propio de ESTE test (el global es 45 s). Medido en local: la interfaz consume ~25-50 s y el procesamiento real de la
+  // foto (cola de pg-boss + Sharp + rostros) 5-27 s según la carga de la máquina; en el peor caso medido el flujo completo tardó 105 s.
+  // El procesamiento conserva su límite independiente de 60 s (abajo): si lo supera, falla indicando la etapa del worker.
+  test.setTimeout(120_000);
   const a = uniqueUser('soa');
   const b = uniqueUser('sob');
   emails.push(a.email, b.email);
@@ -37,8 +41,10 @@ test('publicar, interactuar, perfil, explorar, seguir y eliminar (flujo social c
   await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}$/, { timeout: 20_000 });
   await expect(page.getByText('Primera luz de la mañana').first()).toBeVisible();
   // El procesamiento es asíncrono: aparece LUMENZA Studio cuando el worker termina (sin recargar)
-  await expect(page.getByRole('radiogroup', { name: 'Versiones de la fotografía' })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole('img', { name: /Original: Primera luz/ })).toBeVisible();
+  await test.step('Etapa WORKER: procesamiento de la fotografía (límite 60 s)', async () => {
+    await expect(page.getByRole('radiogroup', { name: 'Versiones de la fotografía' }), 'ETAPA WORKER: la fotografía no terminó de procesarse en 60 s (cola pg-boss, Sharp o rostros)').toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole('img', { name: /Original: Primera luz/ }), 'ETAPA WORKER: LUMENZA Studio apareció pero sin la imagen original').toBeVisible();
+  });
   const postUrl = page.url();
 
   // La imagen se carga de verdad (naturalWidth > 0), servida desde el almacenamiento

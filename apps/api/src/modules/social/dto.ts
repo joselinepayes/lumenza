@@ -20,6 +20,8 @@ export interface PostDTO {
   /** Variantes ya generadas (solo existentes). `display` y `thumbnail` son derivados técnicos; las tres transformaciones son creativas. */
   variants: { kind: string; url: string; width: number; height: number; bytes: number; params: Record<string, unknown> }[];
   tags: string[];
+  editedAt: string | null;
+  coverVariant: string | null;
   likeCount: number;
   commentCount: number;
   liked: boolean;

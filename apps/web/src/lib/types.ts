@@ -33,6 +33,8 @@ export interface Post {
   /** Solo localización de rostros (recuadros normalizados 0–1): sin identidad, plantillas ni atributos. */
   faces: { status: 'pending' | 'done' | 'failed'; count: number; boxes: FaceBox[] };
   tags: string[];
+  editedAt: string | null;
+  coverVariant: string | null;
   likeCount: number;
   commentCount: number;
   liked: boolean;
@@ -58,10 +60,34 @@ export interface Profile extends Author {
   followingCount: number;
   isMe: boolean;
   following: boolean;
+  isPrivate: boolean;
+  followRequested: boolean;
+  canView: boolean;
 }
 export interface UserListItem extends Author {
   following: boolean;
   isMe: boolean;
+  requested?: boolean;
+  isPrivate?: boolean;
+  /** Motivo de la sugerencia. */
+  reason?: string;
+}
+export type NotifType = 'follow' | 'like' | 'comment' | 'follow_request' | 'follow_accepted' | 'system';
+export interface Notif {
+  id: string;
+  type: NotifType;
+  read: boolean;
+  createdAt: string;
+  postId: string | null;
+  thumbUrl: string | null;
+  actor: Author | null;
+  pending: boolean;
+  following: boolean;
+}
+export interface Settings {
+  isPrivate: boolean;
+  notifPrefs: { follow: boolean; like: boolean; comment: boolean; follow_request: boolean };
+  pendingRequests: number;
 }
 
 export const CATEGORIES = [

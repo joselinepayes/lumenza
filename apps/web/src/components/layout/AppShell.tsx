@@ -1,7 +1,9 @@
-import { Compass, Home, LogOut, Plus, Settings, User } from 'lucide-react';
+import { Bell, Compass, Home, LogOut, Plus, Settings, User } from 'lucide-react';
 import { createContext, useContext, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth, useLogout } from '../../lib/auth';
+import { useUnreadCount } from '../../lib/notifications';
+import { LiveProvider } from './Live';
 import { PublishModal } from '../post/PublishModal';
 import { Logo, LogoMark } from '../ui/Logo';
 import { ThemeToggle } from '../ui/ThemeToggle';
@@ -13,6 +15,11 @@ export const usePublish = () => useContext(PublishCtx);
 const link = ({ isActive }: { isActive: boolean }) =>
   `group flex items-center gap-4 rounded-md px-3 py-2.5 transition-colors duration-150 md:justify-center lg:justify-start ${isActive ? 'bg-surface-2 text-ink' : 'text-ink-2 hover:bg-surface-2 hover:text-ink'}`;
 
+function Badge({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return <span className="absolute -right-1 -top-1 grid min-w-[18px] place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-[18px] text-on-accent" aria-hidden>{n > 99 ? '99+' : n}</span>;
+}
+
 export function AppShell() {
   const { user } = useAuth();
   const logout = useLogout();
@@ -20,8 +27,10 @@ export function AppShell() {
   const [publishing, setPublishing] = useState(false);
   const me = `/u/${user?.username}`;
   const open = () => setPublishing(true);
+  const unread = useUnreadCount().data ?? 0;
 
   return (
+    <LiveProvider>
     <PublishCtx.Provider value={open}>
       <div className="min-h-dvh md:grid md:grid-cols-[4.5rem_minmax(0,1fr)] lg:grid-cols-[15.5rem_minmax(0,1fr)]">
         {/* Barra lateral: rail de iconos en tablet, completa en escritorio */}
@@ -33,6 +42,7 @@ export function AppShell() {
           <nav className="flex flex-col gap-1">
             <NavLink to="/inicio" className={link} aria-label="Inicio"><Home className="size-[22px] shrink-0" strokeWidth={1.75} /><span className="hidden lg:inline">Inicio</span></NavLink>
             <NavLink to="/explorar" className={link} aria-label="Explorar"><Compass className="size-[22px] shrink-0" strokeWidth={1.75} /><span className="hidden lg:inline">Explorar</span></NavLink>
+            <NavLink to="/notificaciones" className={link} aria-label={unread > 0 ? `Avisos, ${unread} sin leer` : 'Avisos'}><span className="relative"><Bell className="size-[22px] shrink-0" strokeWidth={1.75} /><Badge n={unread} /></span><span className="hidden lg:inline">Avisos</span></NavLink>
             <NavLink to={me} className={link} aria-label="Perfil"><User className="size-[22px] shrink-0" strokeWidth={1.75} /><span className="hidden lg:inline">Perfil</span></NavLink>
             <NavLink to="/ajustes" className={link} aria-label="Ajustes"><Settings className="size-[22px] shrink-0" strokeWidth={1.75} /><span className="hidden lg:inline">Ajustes</span></NavLink>
             <button type="button" onClick={open} aria-label="Nueva publicación" className="mt-4 flex h-11 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-on-accent transition-shadow duration-200 hover:shadow-[var(--glow)]">
@@ -53,6 +63,7 @@ export function AppShell() {
             <Logo size={24} />
             <div className="flex items-center">
               <ThemeToggle />
+              <NavLink to="/notificaciones" aria-label={unread > 0 ? `Avisos, ${unread} sin leer` : 'Avisos'} className="relative grid size-10 place-items-center rounded-md text-ink-2 hover:bg-surface-2 hover:text-ink"><Bell className="size-[18px]" strokeWidth={1.75} /><Badge n={unread} /></NavLink>
               <NavLink to="/ajustes" aria-label="Ajustes" className="grid size-10 place-items-center rounded-md text-ink-2 hover:bg-surface-2 hover:text-ink"><Settings className="size-[18px]" strokeWidth={1.75} /></NavLink>
               <button type="button" aria-label="Cerrar sesión" onClick={() => logout.mutate(undefined, { onSuccess: () => nav('/login', { replace: true }) })} className="grid size-10 place-items-center rounded-md text-ink-2 hover:bg-surface-2 hover:text-ink"><LogOut className="size-[18px]" strokeWidth={1.75} /></button>
             </div>
@@ -77,5 +88,6 @@ export function AppShell() {
       </div>
       {publishing && <PublishModal onClose={() => setPublishing(false)} />}
     </PublishCtx.Provider>
+    </LiveProvider>
   );
 }

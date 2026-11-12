@@ -164,3 +164,111 @@ Runbook paso a paso: `docs/DESPLIEGUE_AWS_EC2.md`. Archivos: `deploy/aws/{docker
 
 **No verificado (requiere AWS real)**: S3 con el **rol IAM** y IMDSv2 desde contenedores (hop limit 2), Let's Encrypt, HTTP/2, compilación y tiempos en un t3.small, correo, Google y reCAPTCHA reales.
 **Pendientes externos**: security group, IMDS hop limit 2, política IAM del rol, endurecimiento del bucket, IP elástica, dominio + certificado, SMTP real (SES), reCAPTCHA, Google OAuth, guardar `MFA_ENCRYPTION_KEY`/`POSTGRES_PASSWORD` fuera de la instancia. **Limpieza hecha**: contenedores y volúmenes de prueba `lumenzaaws-*` (proyecto del stack de AWS en local) eliminados. **Pendiente de decidir**: 8 usuarios de prueba (`fa*`, `fr*`) que dejó la ejecución interrumpida de los E2E de rostros, y sus objetos en RustFS.
+
+## Fase 6 — Avisos en tiempo real, perfiles privados y edición (implementada y probada en local; NO desplegada — ver «Estado de LUMENZA 2.0» al final)
+- Migración `007_privacy_notifications_edit.sql`: `follow_requests`, `posts.edited_at`, `posts.cover_variant`, tipos de aviso `follow_request` y `follow_accepted`.
+- SSE: `GET /api/events` (cookie de sesión). Los eventos viajan por PostgreSQL `LISTEN/NOTIFY` (`apps/api/src/events/hub.ts`), de modo que el worker (otro proceso) también avisa cuando una foto queda lista. Sin Redis. Nginx no requiere cambios (`X-Accel-Buffering: no` y latido cada 25 s).
+- Avisos: `GET /api/notifications`, `/notifications/unread-count`, `POST /notifications/read`; preferencias por tipo en `PATCH /api/me/settings`.
+- Perfiles privados: solicitud de seguimiento, aceptar/rechazar (`/api/me/follow-requests`), contenido y listas bloqueados a no seguidores; volver público acepta las pendientes.
+- Edición: `PATCH /api/posts/:id` (texto, etiquetas, categoría, visibilidad, descarga y versión mostrada en el inicio: solo quien publica).
+- Sugerencias con motivo (te sigue, conocidos en común, intereses, popularidad) y etiquetas en tendencia.
+- Web: página `/notificaciones`, insignia de no leídos, título de pestaña, sonidos sintetizados (Web Audio, silenciables, guardados en el dispositivo), botón «N publicaciones nuevas», ajustes en `/ajustes/privacidad`.
+- Estado de verificación (actualizado 2026-11-12): las pruebas de integración de esta fase **sí se ejecutaron** con PostgreSQL, RustFS y Mailpit reales (ver «Estado de LUMENZA 2.0»). El texto anterior («escritas pero NO ejecutadas») quedó obsoleto y se conserva solo como historial.
+- Pendiente (no implementado): avisos y códigos TOTP por correo (requieren SMTP real); bloqueo de usuarios.
+
+## Estado de LUMENZA 2.0 (actualizado 2026-11-12) — implementada y probada en local · NO desplegada
+
+> Convención de este apartado: **Implementado** = existe en el código local · **Probado** = hay una ejecución automatizada real que lo respalda (cifras abajo) · **Desplegado** = corre en AWS · **Pendiente de pruebas** / **Pendiente de implementación** = aún no. **Nada de la 2.0 está desplegado ni commiteado.**
+> La nota «NO desplegado» de la sección *Preparación del despliegue en AWS EC2* es histórica (2026-11-10/11). Según el equipo, la versión anterior (sin Fase 6, migraciones 001–006) ya corre en una EC2 (`lumenza.duckdns.org`); eso **no se ha verificado en esta sesión** y no se ha tocado AWS.
+
+### Qué hay en cada entorno
+| Capacidad | Implementado (local) | Probado (local) | Desplegado en AWS | Pendiente |
+|---|---|---|---|---|
+| Registro, login, sesiones, Google OAuth, reCAPTCHA, verificación/recuperación por correo | sí (versión 1) | sí (integración, Google con proveedor simulado) | sí (versión 1, según el equipo; correo sin SMTP real) | Google, reCAPTCHA y SMTP reales; SES |
+| MFA TOTP | sí (versión 1) | sí (integración + E2E) | según el equipo, con la versión 1 | `MFA_ENCRYPTION_KEY` real en producción |
+| Publicar, feed, explorar, perfiles, seguir, like, comentar, guardar | sí (versión 1) | sí | sí (versión 1) | — |
+| Procesamiento Sharp (5 variantes + rostros) con pg-boss | sí (versión 1) | sí (integración + E2E) | sí (versión 1) | investigar un trabajo de 70,9 s |
+| **Avisos en tiempo real (SSE `GET /api/events`) sobre `LISTEN/NOTIFY`** | sí | sí (36 pruebas) | **no** | probar en navegador real y tras Nginx |
+| **Cierre de conexiones SSE al revocar sesión** (logout, cambio de contraseña, vincular Google, revocar otras sesiones, caducidad) | sí | sí | **no** | política fail-closed con margen |
+| **Notificaciones** (campana, contador, leídos, preferencias por tipo) | sí | sí | **no** | — |
+| **Perfiles privados** (solicitudes, aceptar/rechazar, listas bloqueadas) | sí | sí | **no** | — |
+| **Editar publicación** (texto, etiquetas, categoría, visibilidad, versión mostrada) | sí | sí | **no** | — |
+| Sonidos (Web Audio, silenciables), sugerencias con motivo, etiquetas en tendencia | sí | parcial (API sí; sonido y UI solo revisados en código) | **no** | validación visual y de audio en navegador |
+| Migración `007_privacy_notifications_edit.sql` (aditiva: sin DROP ni DELETE) | sí | sí (BD local) | **no** (se aplicaría con `./lumenza.sh up`) | respaldo previo en la EC2 |
+| Avisos y códigos por correo (OTP), bloqueo de usuarios | no | — | — | pendiente de implementación |
+
+### Pruebas automatizadas (reales, entorno local: PostgreSQL 17, RustFS, Mailpit, worker)
+| Suite | Resultado | Observaciones |
+|---|---|---|
+| Typecheck API y web | 0 errores | `tsc` del web **no** incluye `apps/web/e2e` (Playwright las transpila sin comprobar tipos) |
+| Build | correcto | aviso de chunks > 500 kB (ya conocido) |
+| Unitarias | 15/15 | |
+| Integración | **125/125** (10 archivos) | incluye `privacy.integration.test.ts` (5) y `events.integration.test.ts` (36); una corrida anterior tuvo 5 timeouts de worker/S3 por carga de la máquina |
+| SSE (`events.integration.test.ts`) | **36/36**, 3 corridas seguidas | tres usuarios; audiencias, notificaciones, edición/borrado, reconexión, límites, latidos, caída del oyente LISTEN, revocación de sesiones |
+| MFA E2E (`mfa.spec.ts`) | 11/11 ×3 | el test `:66` pasó 24/24 repeticiones tras corregirlo |
+| Social E2E (`social.spec.ts`) | 3/3 ×3; el flujo `:11` pasó 10/10 | |
+| Regresión E2E auth+social+MFA | **19/19 en dos corridas** (Paso 6) | |
+| E2E completo de 6 archivos (37) | última ejecución completa en el Paso 2: 35 pasaron y 2 dieron timeout; repetidos pasaron 10/10 | **`faces.spec.ts` y `studio.spec.ts` no se han vuelto a ejecutar tras los cambios de sesión/SSE** |
+
+### Correcciones realizadas durante esta ronda
+1. `PATCH /posts/:id` devolvía 500 por un SQL con el marcador `$n` mal formado (lo detectó la prueba de integración).
+2. Fixtures de integración que otro worker reprocesaba (publicaciones «listas» sin variantes): ahora se insertan completas en una sola transacción.
+3. **S16**: el cierre de sesión no cortaba el flujo SSE abierto. Ahora cada conexión se liga al hash de su sesión; el logout cierra en dos fases (antes y después de revocar), las revocaciones masivas cierran tras el `COMMIT`, y un único temporizador del hub revalida sesiones cada 25 s (cubre caducidad y revocación externa).
+4. Frontend: al cerrar sesión se eliminan las consultas en caché del usuario anterior (se conserva `me`; un primer intento con `queryClient.clear()` rompió el logout y lo detectó el E2E) y `EventSource` se reabre tras 5 s solo si la sesión sigue siendo válida.
+5. Test MFA `:66`: dependía del reloj (cruce de la ventana TOTP de 30 s). Ahora usa el paso realmente gastado leído de la BD y verifica reutilizado vs caducado en `audit_log`. **No se modificó la seguridad TOTP.**
+6. Test social `:11`: timeout propio de 120 s (medido: 53–105 s con la máquina cargada) y límite de 60 s para el procesamiento con mensaje que indica la etapa del worker. No se tocó el pipeline.
+
+### Seguridad SSE y cierre de sesiones (resumen técnico)
+- Autenticación por cookie de sesión; sin sesión 401. Eventos con **solo identificadores** (sin texto de publicaciones ni comentarios).
+- Audiencia: privada → solo la autora; «solo seguidores» o perfil privado → seguidores + autora; pública → todos los conectados. Los cambios de permisos se aplican al siguiente evento sin reconectar.
+- Reconexión sin reproducción de eventos pasados (no hay `Last-Event-ID`). Máximo 5 conexiones por usuario (se expulsa la más antigua). Latido cada 25 s con un único temporizador, activo solo mientras hay conexiones.
+- Revocación inmediata por la API; revocación por otra vía (BD directa, otra réplica) detectada en ≤ 25 s. Si falla la revalidación contra PostgreSQL **no se cierra nada** (fail-open transitorio): decisión pendiente (ver riesgos).
+- El hash de sesión solo vive en memoria; no se registra ni se envía en eventos. Cubierto por la prueba S24.
+
+### Arquitectura
+React 19 + Vite + Tailwind 4 (TanStack Query, `EventSource`, Web Audio) → Nginx (contenedor web) → Express 5 + TypeScript (rutas → servicios/repositorios → `pg`, Zod) → PostgreSQL 17 (datos, sesiones, pg-boss y `LISTEN/NOTIFY`) · Worker Node (Sharp: `display`, `thumbnail`, `bw_editorial`, `sepia_cinema`, `lumen_tone` + detección de rostros) consume la cola de pg-boss · imágenes solo en S3 (`StorageService`: RustFS en local, Amazon S3 con rol IAM en AWS), la BD guarda `bucket` + `storage_key` + metadatos · Docker Compose (db, api, worker, web, migrate).
+
+### Procesamiento fotográfico (medido en local)
+- Histórico de 162 trabajos de la cola E2E: espera en cola p50 0,5 s / p90 0,9 s; procesamiento p50 4,6 s / p90 7,2 s; máximo 15,5 s en el histórico completo, **salvo un trabajo de 70,9 s** (2026-11-12 04:56 UTC, durante una sesión con la máquina muy cargada) y otros de 34–52 s en la misma ventana.
+- Verificación final del Paso 6: procesamiento 4,7–19,4 s, cola ≤ 1 s, 0 reintentos.
+
+### Riesgos abiertos y siguientes fases
+**Riesgos abiertos (todos pendientes)**
+1. **Trabajo histórico del worker de 70,9 s**: sin investigar. Superaría el límite de 60 s del test; la causa probable es la carga de la máquina (el proyecto está dentro de OneDrive), sin confirmar.
+2. `faces.spec.ts` y `studio.spec.ts`: dieron timeouts en el Paso 2 y no se han vuelto a revisar; el timeout global de 45 s probablemente les afecta.
+3. Política **fail-closed con margen** para SSE (cerrar todas las conexiones tras ~3 revalidaciones fallidas seguidas) y guardia contra pasadas solapadas.
+4. **Bucle de reconexión con más de 5 pestañas**: la expulsada reconecta a los 4 s y expulsa a otra; cada `ready` recarga feed y avisos. Posible solución: responder 204 a la conexión sobrante.
+5. **Limpieza de caché tras un 401** sin pasar por logout (la caché del usuario anterior sigue hasta que se refresque).
+6. Pruebas reales de SSE **en navegador y a través de Nginx** (búfer, `proxy_read_timeout 60s`; falta un `location` propio para `/api/events`).
+7. **Amazon SES** y correos de verificación/recuperación: sin configurar (producción sin SMTP real). DuckDNS no permite los CNAME de DKIM: verificar una dirección o usar un dominio propio.
+8. **Despliegue de LUMENZA 2.0 a AWS**: pendiente (empaquetar, respaldo en la EC2, `load`, `up` con la migración 007, `health`).
+9. **Validación visual y responsive** del frontend nuevo (notificaciones, privacidad, edición, sonidos): solo revisada en código.
+10. Revocación con varias réplicas de API: `closeSession` actúa solo en el proceso local (el resto, en ≤ 25 s). Irrelevante con un único contenedor.
+11. Integración/E2E de las publicaciones «creadas» entran por `hub.publish` en las pruebas SSE, no por el pipeline completo de subida.
+12. Exposición oral y participación del grupo: pendientes de verificar.
+13. Pendientes previos sin cambios: Google OAuth, reCAPTCHA y SMTP reales; Passkeys (opcional); cuenta del evaluador; optimización del bundle; decidir sobre `PROMPT_MAESTRO.md` (aparece borrado en el árbol de trabajo, sin tocar).
+
+**Siguientes fases propuestas (cada una con pruebas y cierre en este archivo)**: commit local → revisión visual/responsive → atender riesgos 1–6 → Nginx/`location` de SSE y prueba en navegador → SES → despliegue con respaldo y reversión → exposición.
+
+### Matriz de seguimiento de la rúbrica (5 criterios × 20 puntos)
+> El texto oficial de la rúbrica **no está en el repositorio**. La columna «Requisitos» resume lo que el equipo declaró para cada criterio y debe contrastarse con el documento oficial. **No se asignan puntajes**: ninguna cifra de esta tabla es una calificación obtenida.
+
+| Criterio (20 pts) | Requisitos (según el equipo) | Evidencias disponibles | Estado real | Pendiente |
+|---|---|---|---|---|
+| **Frontend** | Funcionalidad y manejo de estados; autenticación estable; interfaz responsive y accesible | React 19 + Tailwind 4; tokens de diseño claro/oscuro; E2E de registro, login, MFA, publicar, interactuar, explorar, seguir y eliminar; revisión responsive 320–1440 px en las pantallas de la versión 1; estados de carga/error | Versión 1 completa y probada; las pantallas nuevas (avisos, privacidad, edición) funcionan por E2E parcial y API, sin revisión visual completa | Validación visual/responsive y de audio de lo nuevo; pruebas en navegador de SSE; caché tras 401; bucle >5 pestañas |
+| **Backend** | Seguridad, validaciones y manejo de errores; integración con PostgreSQL, worker y S3 | Zod, autorización por recurso, sesiones con hash, MFA TOTP cifrado, límites de intentos, SSE con filtrado de audiencia y cierre por sesión revocada; 125 pruebas de integración; 15 unitarias | Sólido y probado en local | Fail-closed con margen; investigar trabajo de 70,9 s; SES/SMTP, Google y reCAPTCHA reales |
+| **Participación grupal** | Cada integrante entiende y puede explicar el proyecto | Documentación técnica (`docs/`, `DECISIONES_TECNICAS.md`, este archivo) | **No verificable desde el repositorio** | Verificar con el grupo; repasar los puntos técnicos de abajo |
+| **Despliegue en la nube** | Aplicación estable en la nube con configuración segura | Versión 1 en EC2 según el equipo; runbook `docs/DESPLIEGUE_AWS_EC2.md`; `lumenza.sh` (backup, restore, health); empaquetado con comprobaciones de secretos (reforzado en el Paso 7) | La 2.0 **no** está desplegada | Empaquetar, respaldo, migración 007, `health`, prueba SSE tras Nginx, plan de reversión |
+| **Informe final** | Evidencia reproducible de pruebas, decisiones y resultados | Este archivo, `DECISIONES_TECNICAS.md`, `docs/*`; cifras de pruebas con comandos reproducibles | Evidencia abundante, informe final no redactado | Redactar el informe con resultados, riesgos y trabajo pendiente honestos |
+
+**Puntos técnicos que todo el grupo debería poder explicar**: SSE frente a WebSocket y por qué `LISTEN/NOTIFY` sin Redis; filtrado de audiencia por visibilidad y perfil privado; por qué los eventos llevan solo ids; cierre de sesión en dos fases y revalidación periódica; fail-open frente a fail-closed; TOTP (ventana ±1, anti-replay con `last_used_step`, secretos cifrados); pipeline Sharp + pg-boss + S3 (la BD nunca guarda imágenes); por qué la migración 007 es aditiva y cómo se revierte el despliegue.
+
+### Empaquetado seguro (`deploy/aws/pack-for-ec2.sh`, reforzado el 2026-11-12; sin ejecutar el empaquetado real)
+- Mismo resultado y formato (`lumenza-deploy.tar.gz` + `lumenza-deploy.sha256`, mismas raíces y rutas relativas): el procedimiento del runbook no cambia. Nuevo: `bash deploy/aws/pack-for-ec2.sh --check` valida la lista sin crear paquete.
+- Antes: exclusiones por patrón de `tar`; `deploy/aws/.env.localtest.tls` **no** estaba excluido (la comprobación final lo habría detectado y borrado el paquete, pero el empaquetado no funcionaba). Ahora: lista blanca de raíces + recorrido con `find` + filtro por nombre (sin distinguir mayúsculas) a cualquier profundidad: `.env` reales y variantes (solo se conservan `.env.example` y `.env.aws.example`), claves y certificados (`.pem .key .p12 .pfx .crt …`, `id_rsa*`, `id_ed25519*`), volcados/respaldos/`.tar`/`.zip`/temporales, `.npmrc`, `credentials`/`secrets` en formatos de datos; carpetas `node_modules`, `.git`, `dist`, `backups`, `.aws`, `.ssh`, etc.
+- Aborta (código 1, sin dejar paquete) si hay enlaces simbólicos, archivos especiales o archivos de más de 50 MB; busca patrones de credenciales en el contenido de lo que sí entra (imprime solo nombres de archivo, nunca valores); y valida de nuevo el paquete creado (rutas absolutas o con `..`, enlaces, raíces permitidas, nombres sensibles).
+- Comparación con la lista del script anterior sobre el repositorio real: idéntica salvo que ahora queda fuera `deploy/aws/.env.localtest.tls` (209 entradas frente a 210). Un primer borrador excluía por error `credentials.service.ts` (código fuente); lo detectó el `--check` real y se corrigió con una prueba de regresión.
+- Pruebas en un árbol ficticio aislado (secretos inventados): 34 PASS, 0 FAIL, 1 SKIP (el caso de enlace simbólico no se pudo reproducir en este Windows: está cubierto solo por revisión estática, a repetir en WSL/Linux). Pendiente: ejecutar el empaquetado real cuando se autorice el despliegue.
+
+### Cómo reproducir las pruebas
+`docker compose up -d --wait db rustfs mailpit` · `npm run migrate` · `npm run typecheck` · `npm test` · `npm run test:integration -w @lumenza/api` · `npm run e2e -w @lumenza/web` (o archivos concretos: `auth.spec.ts social.spec.ts mfa.spec.ts`) · `npm run build`. Aislar cada corrida E2E: no lanzar dos a la vez ni cortarlas con `timeout` (deja publicaciones huérfanas que hacen fallar la búsqueda «mañana»).

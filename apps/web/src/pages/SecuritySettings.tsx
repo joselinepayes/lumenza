@@ -6,6 +6,7 @@ import { ErrorState, Skeleton, useToast } from '../components/ui/Feedback';
 import { Field } from '../components/ui/Field';
 import { Modal } from '../components/ui/Modal';
 import { ApiError } from '../lib/api';
+import { SettingsTabs } from './PrivacySettings';
 import { useAuth } from '../lib/auth';
 import { groupSecret, useMfaDisable, useMfaEnable, useMfaRegenerate, useMfaSetup, useMfaStatus, type MfaSetup, type MfaStatus } from '../lib/mfa';
 
@@ -161,6 +162,7 @@ export default function SecuritySettings() {
       <p className="text-xs font-medium uppercase tracking-[0.3em] text-accent-soft">Ajustes</p>
       <h1 className="font-display mt-1 text-4xl font-light tracking-tight">Seguridad</h1>
       <p className="mb-6 mt-1 text-ink-2">Protege tu cuenta de LUMENZA con una verificación adicional.</p>
+      <SettingsTabs />
 
       {user?.mfaRequired && !user.mfaEnabled && (
         <div role="alert" className="mb-5 flex gap-3 rounded-lg border border-accent/50 bg-surface-2 p-4 text-sm">

@@ -1,4 +1,4 @@
-import { Bookmark, Download, Globe2, Heart, Link2, Lock, MessageCircle, MoreHorizontal, Send, Trash2, Users } from 'lucide-react';
+import { Bookmark, Download, Globe2, Heart, Link2, Lock, MessageCircle, MoreHorizontal, Pencil, Send, Trash2, Users } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
@@ -11,6 +11,7 @@ import { useToast } from '../ui/Feedback';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Menu, type MenuItem } from '../ui/Menu';
+import { EditPostModal } from './EditPostModal';
 import { PhotoImage } from './PhotoImage';
 
 export async function copyPostLink(id: string, toast: (t: string, tone?: 'ok' | 'error') => void) {
@@ -57,16 +58,19 @@ export function PostMenu({ post, onDeleted }: { post: Post; onDeleted?: () => vo
   const nav = useNavigate();
   const del = useDeletePost();
   const [confirm, setConfirm] = useState(false);
+  const [editing, setEditing] = useState(false);
   const items: MenuItem[] = [
     { label: 'Abrir publicación', icon: <MessageCircle className="size-4" />, onSelect: () => nav(`/p/${post.id}`) },
     { label: 'Copiar enlace', icon: <Link2 className="size-4" />, onSelect: () => copyPostLink(post.id, toast) },
     { label: 'Ver perfil', icon: <Users className="size-4" />, onSelect: () => nav(`/u/${post.author.username}`) },
   ];
   if (post.isOwner || post.allowDownload) items.push({ label: 'Descargar original', icon: <Download className="size-4" />, onSelect: () => { window.location.href = `/api/media/photo/${post.photo.id}/original?download=1`; } });
+  if (post.isOwner) items.push({ label: 'Editar', icon: <Pencil className="size-4" />, onSelect: () => setEditing(true) });
   if (post.isOwner) items.push({ label: 'Eliminar', icon: <Trash2 className="size-4" />, danger: true, onSelect: () => setConfirm(true) });
   return (
     <>
       <Menu label="Más acciones" trigger={<MoreHorizontal className="size-5" strokeWidth={1.75} />} items={items} />
+      {editing && <EditPostModal post={post} onClose={() => setEditing(false)} />}
       {confirm && (
         <Modal title="Eliminar publicación" onClose={() => setConfirm(false)}>
           <div className="p-5">
@@ -88,6 +92,7 @@ export function PostMeta({ post }: { post: Post }) {
   return (
     <span className="flex items-center gap-1.5 text-xs text-ink-2">
       <time dateTime={post.createdAt} title={new Date(post.createdAt).toLocaleString('es')}>{relativeTime(post.createdAt)}</time>
+      {post.editedAt && <span title={`Editada ${new Date(post.editedAt).toLocaleString('es')}`}>· editada</span>}
       {post.visibility !== 'public' && (<><span aria-hidden>·</span><V className="size-3" aria-hidden /><span>{visLabel[post.visibility]}</span></>)}
     </span>
   );

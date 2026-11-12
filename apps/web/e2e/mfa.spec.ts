@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ORIGIN, cleanup, freeMfaStep, makeAdmin, totpNow, uniqueUser } from './helpers';
+import { ORIGIN, cleanup, freeMfaStep, lastUsedMfaStep, makeAdmin, mfaFailureReasons, totpAtStep, totpNow, uniqueUser } from './helpers';
 
 const emails: string[] = [];
 test.afterAll(async () => {
@@ -66,6 +66,11 @@ test('activación completa desde Ajustes: QR real, código inválido rechazado, 
 test('login en dos pasos con TOTP: sin sesión tras la contraseña; código erróneo y reutilizado rechazados; el correcto entra', async ({ page }) => {
   const u = await register(page, 'mf2');
   const { secret } = await enableByApi(page, u.password);
+  // Paso TOTP que el backend gastó al activar: todo lo demás se deriva de ESTE contador, no del reloj, así el test no depende de
+  // en qué segundo de la ventana de 30 s ocurra (el servidor acepta ±1 paso respecto a su reloj, y la prueba dura < 30 s).
+  const used = await lastUsedMfaStep(u.email);
+  expect(used).not.toBeNull();
+  const usedStep = used!;
   await api(page, '/auth/logout');
 
   await page.goto('/login');
@@ -82,12 +87,20 @@ test('login en dos pasos con TOTP: sin sesión tras la contraseña; código err�
   await expect(page).toHaveURL(/\/login\/mfa$/);
 
   const input = page.getByLabel('Código de verificación');
-  await input.fill('123456');
+  await input.fill('123456'); // inválido
   await expect(page.getByRole('alert').filter({ hasText: /Te quedan 4 intentos/ })).toBeVisible();
-  // El código del paso usado en la activación (S) está gastado; el del paso siguiente (deriva de reloj +30 s) es válido
-  await input.fill(totpNow(secret, 0));
-  await expect(page.getByRole('alert').filter({ hasText: /ya utilizado/ })).toBeVisible();
-  await input.fill(totpNow(secret, 1));
+  // Reutilización: EXACTAMENTE el código ya gastado en la activación (paso S). El contador de intentos restantes distingue cada
+  // respuesta del servidor (un alert anterior no puede dar un falso positivo).
+  await input.fill(totpAtStep(secret, usedStep));
+  await expect(page.getByRole('alert').filter({ hasText: /Te quedan 3 intentos/ })).toBeVisible();
+  // Caducado: el paso S-2 queda fuera de la ventana ±1 en cualquier instante de la prueba
+  await input.fill(totpAtStep(secret, usedStep - 2));
+  await expect(page.getByRole('alert').filter({ hasText: /Te quedan 2 intentos/ })).toBeVisible();
+  // El backend los distingue en la auditoría: inválido, reutilizado, caducado (inválido)
+  expect(await mfaFailureReasons(u.email)).toEqual(['bad_totp', 'totp_replay', 'bad_totp']);
+  expect((await page.request.get(`${ORIGIN}/api/auth/me`)).status()).toBe(401); // ninguno de los rechazados abrió sesión
+  // Código nuevo y válido: el paso S+1 es posterior al último usado y siempre cae dentro de la ventana
+  await input.fill(totpAtStep(secret, usedStep + 1));
   await expect(page).toHaveURL(/\/inicio$/);
   expect((await page.request.get(`${ORIGIN}/api/auth/me`)).status()).toBe(200);
 });

@@ -2,6 +2,7 @@ import { Hash, Search, SearchX, Users } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PhotoImage } from '../components/post/PhotoImage';
+import { NewContentPill } from '../components/layout/Live';
 import { UserRow } from '../components/layout/SuggestionsPanel';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { InfiniteSentinel } from '../components/ui/Infinite';
@@ -64,6 +65,7 @@ export default function Explore() {
 
   return (
     <div className="px-4 pt-4 sm:px-0 sm:pt-0">
+      <NewContentPill kind="explore" one="fotografía" many="fotografías" />
       <h1 className="font-display text-4xl font-light tracking-tight">Explorar</h1>
       <p className="mb-5 mt-1 text-ink-2">Descubre fotografías, personas y etiquetas.</p>
 

@@ -53,7 +53,12 @@ export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api<void>('/auth/logout', { method: 'POST' }),
-    onSuccess: () => qc.setQueryData(['me'], null),
+    onSuccess: () => {
+      qc.setQueryData(['me'], null);
+      // Evita que otra persona que inicie sesión en este navegador vea avisos o datos en caché de la sesión anterior.
+      // Se conserva ['me'] y la configuración pública: vaciar todo el caché desengancharía al AuthProvider.
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' && q.queryKey[0] !== 'auth-config' });
+    },
   });
 }
 

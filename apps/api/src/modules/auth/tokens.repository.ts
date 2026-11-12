@@ -1,4 +1,5 @@
 import { pool } from '../../db/pool.js';
+import { closeSessions } from '../../events/hub.js';
 import type { UserRow } from './auth.repository.js';
 
 export type TokenPurpose = 'verify_email' | 'reset_password';
@@ -82,8 +83,9 @@ export const tokensRepository = {
       }
       await c.query('UPDATE users SET password_hash = $2, email_verified = true WHERE id = $1', [userId, passwordHash]);
       await c.query("UPDATE email_tokens SET used_at = now() WHERE user_id = $1 AND purpose = 'reset_password' AND used_at IS NULL", [userId]);
-      await c.query('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+      const revoked = await c.query<{ token_hash: string }>('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL RETURNING token_hash', [userId]);
       await c.query('COMMIT');
+      closeSessions(revoked.rows.map((x) => x.token_hash)); // tras confirmar la transacción
       return { ok: true, userId };
     } catch (e) {
       await c.query('ROLLBACK');
@@ -114,11 +116,13 @@ export const googleRepository = {
     try {
       await c.query('BEGIN');
       await c.query('UPDATE users SET google_sub = $2, email_verified = true WHERE id = $1', [userId, sub]);
+      let revoked: string[] = [];
       if (wasUnverified) {
         await c.query('UPDATE users SET password_hash = NULL WHERE id = $1', [userId]);
-        await c.query('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+        revoked = (await c.query<{ token_hash: string }>('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL RETURNING token_hash', [userId])).rows.map((x) => x.token_hash);
       }
       await c.query('COMMIT');
+      closeSessions(revoked); // tras confirmar la transacción
     } catch (e) {
       await c.query('ROLLBACK');
       throw e;

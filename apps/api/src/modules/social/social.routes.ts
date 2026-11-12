@@ -3,6 +3,7 @@ import { Router, type Request } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
+import { publish } from '../../events/hub.js';
 import { logger } from '../../lib/logger.js';
 import { MAX_UPLOAD_BYTES, processAvatar, validateUpload } from '../../lib/images.js';
 import { allObjectKeys, originalKey } from '../../jobs/photo-keys.js';
@@ -44,7 +45,7 @@ export function createSocialRouter(opts: { strictLimits?: boolean; queue?: Photo
   const queue = () => opts.queue ?? getQueue();
   const r = Router();
   // Solo rutas propias: las desconocidas siguen respondiendo 404 (no 401).
-  r.use(['/media', '/posts', '/feed', '/explore', '/me', '/search', '/suggestions', '/users', '/comments'], requireAuth);
+  r.use(['/media', '/posts', '/feed', '/explore', '/me', '/search', '/suggestions', '/users', '/comments', '/notifications'], requireAuth);
   const storage = () => getStorage();
   const uid = (req: Request) => req.user!.id;
   const strict = opts.strictLimits ?? false;
@@ -158,13 +159,40 @@ export function createSocialRouter(opts: { strictLimits?: boolean; queue?: Photo
     res.json({ post });
   });
 
+  const editSchema = z.object({
+    caption: z.string().trim().max(2200).optional(),
+    category: z.enum(CATEGORIES).nullable().optional(),
+    visibility: z.enum(['public', 'followers', 'private']).optional(),
+    allowDownload: z.boolean().optional(),
+    tags: z.string().max(600).optional(),
+    coverVariant: z.enum(['bw_editorial', 'sepia_cinema', 'lumen_tone']).nullable().optional(),
+  });
+  r.patch('/posts/:id', makeLimiter(120, 60 * 60_000, strict), async (req, res) => {
+    const postId = uuid.parse(req.params.id);
+    const f = editSchema.parse(req.body);
+    const current = await postsRepository.getById(uid(req), postId);
+    if (!current || !current.isOwner) throw new HttpError(404, 'Publicación no encontrada', 'not_found');
+    if (f.coverVariant && !current.variants.some((v) => v.kind === f.coverVariant)) throw new HttpError(409, 'Esa versión aún no está disponible', 'variant_unavailable');
+    const caption = f.caption ?? current.caption;
+    const ok = await postsRepository.update(uid(req), postId, {
+      caption: f.caption, category: f.category, visibility: f.visibility, allowDownload: f.allowDownload, coverVariant: f.coverVariant,
+      tags: f.tags !== undefined || f.caption !== undefined ? parseTags(f.tags ?? current.tags.join(' '), caption) : undefined,
+    });
+    if (!ok) throw new HttpError(404, 'Publicación no encontrada', 'not_found');
+    const post = (await postsRepository.getById(uid(req), postId))!;
+    await publish({ kind: 'post', action: 'updated', postId, authorId: uid(req), authorUsername: req.user!.username, visibility: post.visibility });
+    res.json({ post });
+  });
+
   r.delete('/posts/:id', async (req, res) => {
     const postId = uuid.parse(req.params.id);
+    const info = await postsRepository.authorInfo(postId);
     const keys = await postsRepository.deleteOwned(uid(req), postId);
     if (!keys) throw new HttpError(404, 'Publicación no encontrada', 'not_found');
     // Claves de BD + deterministas (cubre trabajos en curso que escriban objetos tras la eliminación; el worker también limpia)
     const all = new Set([...keys.map((k) => k.key), ...allObjectKeys(uid(req), postId)]);
     await Promise.allSettled([...all].map((k) => storage().delete(k)));
+    if (info) await publish({ kind: 'post', action: 'deleted', postId, authorId: info.authorId, authorUsername: info.username, visibility: info.visibility });
     res.status(204).end();
   });
 
@@ -175,6 +203,7 @@ export function createSocialRouter(opts: { strictLimits?: boolean; queue?: Photo
     const f = z.object({ category: z.enum(CATEGORIES).optional(), tag: z.string().regex(/^[a-z0-9_]{1,50}$/i).optional(), q: q.optional() }).parse(req.query);
     res.json(await postsRepository.explore(uid(req), { ...f, tag: f.tag?.toLowerCase() }, cursorOf(req)));
   });
+  r.get('/explore/trending-tags', async (_req, res) => res.json({ items: await postsRepository.trendingTags() }));
   r.get('/explore/featured', async (req, res) => res.json({ items: await postsRepository.featured(uid(req)) }));
   r.get('/me/saved', async (req, res) => res.json(await postsRepository.saved(uid(req), cursorOf(req))));
 
@@ -264,20 +293,65 @@ export function createSocialRouter(opts: { strictLimits?: boolean; queue?: Photo
     const { name } = await target(req);
     res.json({ profile: await socialRepository.profile(uid(req), name) });
   });
-  r.get('/users/:username/posts', async (req, res) => res.json(await postsRepository.byAuthor(uid(req), (await target(req)).id, cursorOf(req))));
-  r.get('/users/:username/followers', async (req, res) => res.json({ items: await socialRepository.relations(uid(req), (await target(req)).id, 'followers') }));
-  r.get('/users/:username/following', async (req, res) => res.json({ items: await socialRepository.relations(uid(req), (await target(req)).id, 'following') }));
+  /** Un perfil privado solo muestra publicaciones y listas a su dueño y a sus seguidores aceptados. */
+  const canView = async (req: Request, id: string) => id === uid(req) || !(await socialRepository.isPrivate(id)) || (await socialRepository.isFollowing(uid(req), id));
+  r.get('/users/:username/posts', async (req, res) => {
+    const { id } = await target(req);
+    if (!(await canView(req, id))) return res.json({ items: [], nextCursor: null, locked: true });
+    res.json(await postsRepository.byAuthor(uid(req), id, cursorOf(req)));
+  });
+  for (const kind of ['followers', 'following'] as const) {
+    r.get(`/users/:username/${kind}`, async (req, res) => {
+      const { id } = await target(req);
+      if (!(await canView(req, id))) return res.json({ items: [], locked: true });
+      res.json({ items: await socialRepository.relations(uid(req), id, kind) });
+    });
+  }
 
   r.post('/users/:username/follow', async (req, res) => {
     const { id, name } = await target(req);
     if (id === uid(req)) throw new HttpError(400, 'No puedes seguirte a ti mismo', 'self_follow');
-    if (await socialRepository.follow(uid(req), id)) await socialRepository.notify(id, uid(req), 'follow');
+    if (await socialRepository.isFollowing(uid(req), id)) return res.json({ profile: await socialRepository.profile(uid(req), name) });
+    if (await socialRepository.isPrivate(id)) {
+      // Perfil privado: se envía una solicitud que su dueño debe aceptar
+      if (await socialRepository.requestFollow(uid(req), id)) await socialRepository.notify(id, uid(req), 'follow_request');
+    } else if (await socialRepository.follow(uid(req), id)) await socialRepository.notify(id, uid(req), 'follow');
     res.json({ profile: await socialRepository.profile(uid(req), name) });
   });
   r.delete('/users/:username/follow', async (req, res) => {
     const { id, name } = await target(req);
     await socialRepository.unfollow(uid(req), id);
     res.json({ profile: await socialRepository.profile(uid(req), name) });
+  });
+
+  // ---------- Ajustes de privacidad y avisos ----------
+  r.get('/me/settings', async (req, res) => res.json(await socialRepository.getSettings(uid(req))));
+  r.patch('/me/settings', async (req, res) => {
+    const b = z.object({
+      isPrivate: z.boolean().optional(),
+      notifPrefs: z.object({ follow: z.boolean(), like: z.boolean(), comment: z.boolean(), follow_request: z.boolean() }).partial().optional(),
+    }).strict().parse(req.body);
+    await socialRepository.updateSettings(uid(req), b);
+    res.json(await socialRepository.getSettings(uid(req)));
+  });
+
+  // ---------- Solicitudes de seguimiento (perfil privado) ----------
+  r.get('/me/follow-requests', async (req, res) => res.json({ items: await socialRepository.pendingRequests(uid(req)) }));
+  for (const action of ['accept', 'decline'] as const) {
+    r.post(`/me/follow-requests/:username/${action}`, async (req, res) => {
+      const { id } = await target(req);
+      if (!(await socialRepository.resolveRequest(uid(req), id, action === 'accept'))) throw new HttpError(404, 'Solicitud no encontrada', 'not_found');
+      res.json({ ok: true, ...(await socialRepository.getSettings(uid(req))) });
+    });
+  }
+
+  // ---------- Notificaciones ----------
+  r.get('/notifications', async (req, res) => res.json(await socialRepository.notifications(uid(req), cursorOf(req))));
+  r.get('/notifications/unread-count', async (req, res) => res.json({ count: await socialRepository.unreadCount(uid(req)) }));
+  r.post('/notifications/read', async (req, res) => {
+    const b = z.object({ ids: z.array(z.string().uuid()).max(100).optional() }).parse(req.body ?? {});
+    await socialRepository.markRead(uid(req), b.ids);
+    res.json({ count: await socialRepository.unreadCount(uid(req)) });
   });
 
   return r;
