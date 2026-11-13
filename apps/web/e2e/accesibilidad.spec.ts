@@ -67,6 +67,7 @@ test('E2: el botón de seguir tiene un nombre accesible correcto en cada estado 
   await expectState(followBtn(pageB, A.username), 'Solicitar', `Solicitar seguir a ${A.username}`);
   // Solicitud aceptada: «Siguiendo»
   await followBtn(pageB, A.username).click();
+  await expectState(followBtn(pageB, A.username), 'Solicitado', `Solicitado: cancelar la solicitud para seguir a ${A.username}`); // la solicitud ya existe en el servidor antes de aceptarla
   expect((await ctxA.request.post(`${ORIGIN}/api/me/follow-requests/${B.username}/accept`, { headers: hdr })).status()).toBe(200);
   await pageB.reload();
   await expectState(followBtn(pageB, A.username), 'Siguiendo', `Siguiendo: dejar de seguir a ${A.username}`);

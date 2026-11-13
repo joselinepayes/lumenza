@@ -23,7 +23,8 @@ export function createApp(deps: AuthDeps = {}) {
   app.use(pinoHttp({ logger }));
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser(env.SESSION_SECRET));
-  app.use('/api', rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false }));
+  // Límite global por IP. En NODE_ENV=test se relaja (igual que los limitadores de rutas) salvo que se pida `strictLimits`.
+  app.use('/api', rateLimit({ windowMs: 60_000, limit: env.NODE_ENV === 'test' && !deps.strictLimits ? 10_000 : 300, standardHeaders: true, legacyHeaders: false }));
 
   app.use('/api', csrfOriginCheck);
   app.use('/api', loadUser);
